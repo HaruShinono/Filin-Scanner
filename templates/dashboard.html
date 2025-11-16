@@ -1,0 +1,87 @@
+{% extends 'layout.html' %}
+{% import '_macros.html' as macros %}
+
+{% block title %}Dashboard - Web Scanner{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Scanner Dashboard</h1>
+            <p class="lead">Start a new scan or review previous results.</p>
+        </div>
+    </div>
+
+    <div class="card bg-body-secondary mb-5">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="bi bi-play-circle-fill"></i> New Scan
+            </h5>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('main.new_scan') }}" method="POST">
+                <div class="input-group">
+                    <span class="input-group-text">Target URL</span>
+                    <input type="url" class="form-control" name="target_url" placeholder="http://example.com" required>
+                    <button type="submit" class="btn btn-primary">Start Scan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <h2>Scan History</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">Target URL</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Vulnerabilities</th>
+                            <th scope="col">Started</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if scans %}
+                            {% for scan in scans %}
+                            <tr>
+                                <th scope="row">{{ scan.id }}</th>
+                                <td>
+                                    <a href="{{ url_for('main.scan_details', scan_id=scan.id) }}" class="text-decoration-none">
+                                        {{ scan.target_url }}
+                                    </a>
+                                </td>
+                                <td>
+                                    {{ macros.render_status_badge(scan) }}
+                                </td>
+                                <td>
+                                    {{ macros.render_vulnerability_summary(scan.vulnerabilities, scan.status) }}
+                                </td>
+                                <td>{{ scan.start_time.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <a href="{{ url_for('main.scan_details', scan_id=scan.id) }}" class="btn btn-sm btn-outline-light" title="View Details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <form action="{{ url_for('main.delete_scan', scan_id=scan.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this scan?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Scan">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center">No scans have been run yet.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

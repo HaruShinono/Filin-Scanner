@@ -1,0 +1,47 @@
+{# templates/_macros.html #}
+
+{#
+    Macro để hiển thị một badge trạng thái (status badge) cho một lần quét.
+    Nó sẽ tự động chọn màu sắc và icon phù hợp với trạng thái.
+    - Tham số: scan (một đối tượng Scan từ database)
+#}
+{% macro render_status_badge(scan) %}
+    {% if scan.status == 'COMPLETED' %}
+        <span class="badge text-bg-success">Completed</span>
+    {% elif scan.status == 'RUNNING' %}
+        <span class="badge text-bg-info">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            Running
+        </span>
+    {% elif scan.status == 'PENDING' %}
+        <span class="badge text-bg-secondary">Pending</span>
+    {% elif scan.status == 'FAILED' %}
+        <span class="badge text-bg-danger">Failed</span>
+    {% else %}
+        <span class="badge text-bg-dark">{{ scan.status }}</span>
+    {% endif %}
+{% endmacro %}
+
+
+{#
+    Macro để hiển thị tóm tắt số lượng lỗ hổng theo từng mức độ nghiêm trọng.
+    Nó sẽ đếm và hiển thị các badge cho Critical, High, Medium, và Low.
+    - Tham số: vulnerabilities (danh sách các đối tượng Vulnerability của một lần quét)
+    - Tham số: scan_status (trạng thái của lần quét, ví dụ: 'COMPLETED')
+#}
+{% macro render_vulnerability_summary(vulnerabilities, scan_status) %}
+    {% set critical_count = vulnerabilities | selectattr('severity', 'equalto', 'Critical') | list | length %}
+    {% set high_count = vulnerabilities | selectattr('severity', 'equalto', 'High') | list | length %}
+    {% set medium_count = vulnerabilities | selectattr('severity', 'equalto', 'Medium') | list | length %}
+    {% set low_count = vulnerabilities | selectattr('severity', 'equalto', 'Low') | list | length %}
+
+    {% if critical_count > 0 %} <span class="badge text-bg-danger me-1" title="Critical">{{ critical_count }}C</span> {% endif %}
+    {% if high_count > 0 %} <span class="badge" style="background-color: #dc3545;" title="High">{{ high_count }}H</span> {% endif %}
+    {% if medium_count > 0 %} <span class="badge text-bg-warning me-1" title="Medium">{{ medium_count }}M</span> {% endif %}
+    {% if low_count > 0 %} <span class="badge text-bg-primary me-1" title="Low">{{ low_count }}L</span> {% endif %}
+    
+    {# Chỉ hiển thị '0' nếu quét đã hoàn thành và không có lỗ hổng nào #}
+    {% if not (critical_count or high_count or medium_count or low_count) and scan_status == 'COMPLETED' %}
+        <span class="badge text-bg-light">0</span>
+    {% endif %}
+{% endmacro %}

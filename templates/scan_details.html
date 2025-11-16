@@ -1,0 +1,221 @@
+{% extends 'layout.html' %}
+
+{% block title %}Scan #{{ scan.id }} - {{ scan.target_url }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-0">Scan Details</h1>
+            <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
+        </div>
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Scan Summary Card -->
+    <div class="card bg-body-secondary mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Target:</strong>
+                    <p class="font-monospace">{{ scan.target_url }}</p>
+                </div>
+                <div class="col-md-3">
+                    <strong>Started:</strong>
+                    <p id="start-time">{{ scan.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="col-md-3">
+                    <strong>Status:</strong>
+                    <p><span id="scan-status-badge" class="badge">Loading...</span></p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <strong>Progress:</strong>
+                    <div id="progress-container" class="progress" role="progressbar" aria-label="Scan progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                    </div>
+                    <small id="progress-message" class="text-body-secondary mt-1 d-block">Initializing scan...</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reconnaissance Findings Section -->
+    {% if scan.recon_findings %}
+    <h2>Reconnaissance Findings</h2>
+    <div class="card bg-body-secondary mb-4">
+        <div class="card-body">
+            <ul class="list-group list-group-flush">
+                {% for finding in scan.recon_findings %}
+                    <li class="list-group-item bg-transparent">
+                        {% set details = finding.get_details_as_dict() %}
+                        {% if finding.tool == 'wafw00f' %}
+                            <i class="bi bi-fire text-danger me-2"></i>
+                            <strong>WAF Detected:</strong>
+                            <span class="badge text-bg-danger">{{ details.firewall }} ({{ details.manufacturer }})</span>
+                        {% elif finding.tool == 'nmap' %}
+                            <i class="bi bi-ethernet text-info me-2"></i>
+                            <strong>Open Port:</strong>
+                            <span class="badge text-bg-info">{{ details.port }}/{{ details.protocol }}</span> - {{ details.service_name }}
+                            <code class="ms-2">{{ details.product }} {{ details.version }}</code>
+                        {% else %}
+                             <i class="bi bi-info-circle-fill me-2"></i>
+                            <strong>{{ finding.tool | title }}:</strong> {{ finding.finding_type }}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Vulnerabilities Found Section -->
+    <h2>Vulnerabilities Found</h2>
+    <div id="vulnerabilities-accordion" class="accordion">
+        <div id="loading-state" class="text-center p-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Waiting for scan to start and find vulnerabilities...</p>
+        </div>
+        <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
+             <i class="bi bi-shield-check fs-3"></i>
+             <h4 class="alert-heading mt-2">Scan Complete!</h4>
+             <p>No vulnerabilities were found for this target.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const scanId = {{ scan.id }};
+        const eventSource = new EventSource(`/stream/${scanId}`);
+
+        const statusBadge = document.getElementById('scan-status-badge');
+        const progressBar = document.getElementById('progress-bar');
+        const progressContainer = document.getElementById('progress-container');
+        const progressMessage = document.getElementById('progress-message');
+        const accordion = document.getElementById('vulnerabilities-accordion');
+        const loadingState = document.getElementById('loading-state');
+        const noVulnsFoundMessage = document.getElementById('no-vulns-found');
+
+        let vulnerabilityCount = 0;
+
+        function updateStatusBadge(status) {
+            statusBadge.textContent = status;
+            statusBadge.className = 'badge';
+            if (status === 'COMPLETED') {
+                statusBadge.classList.add('text-bg-success');
+            } else if (status === 'RUNNING') {
+                statusBadge.classList.add('text-bg-info');
+            } else if (status === 'PENDING') {
+                statusBadge.classList.add('text-bg-secondary');
+            } else if (status === 'FAILED') {
+                statusBadge.classList.add('text-bg-danger');
+            }
+        }
+
+        function getSeverityBadgeClass(severity) {
+            switch (severity.toLowerCase()) {
+                case 'critical': return 'text-bg-danger';
+                case 'high': return 'text-bg-danger';
+                case 'medium': return 'text-bg-warning';
+                case 'low': return 'text-bg-primary';
+                default: return 'text-bg-secondary';
+            }
+        }
+
+        function createVulnerabilityAccordionItem(vuln) {
+            vulnerabilityCount++;
+            loadingState.classList.add('d-none');
+
+            const severityBadgeClass = getSeverityBadgeClass(vuln.severity);
+            const details = vuln.details;
+
+            let detailsHtml = '<ul class="list-group list-group-flush">';
+            if (typeof details === 'object' && details !== null) {
+                for (const [key, value] of Object.entries(details)) {
+                    const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+                    detailsHtml += `<li class="list-group-item"><strong>${key}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
+                }
+            } else {
+                 detailsHtml += `<li class="list-group-item"><code>${details}</code></li>`;
+            }
+            detailsHtml += '</ul>';
+
+            const itemHtml = `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading-${vuln.id}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${vuln.id}" aria-expanded="false" aria-controls="collapse-${vuln.id}">
+                            <span class="badge ${severityBadgeClass} me-3">${vuln.severity}</span>
+                            <span class="fw-bold me-2">${vuln.type}</span>
+                            <span class="text-muted text-truncate">on ${vuln.url}</span>
+                        </button>
+                    </h2>
+                    <div id="collapse-${vuln.id}" class="accordion-collapse collapse" aria-labelledby="heading-${vuln.id}" data-bs-parent="#vulnerabilities-accordion">
+                        <div class="accordion-body">
+                            <p><strong>Subcategory:</strong> ${vuln.subcategory || 'N/A'}</p>
+                            <p><strong>URL:</strong> <a href="${vuln.url}" target="_blank" rel="noopener noreferrer">${vuln.url}</a></p>
+                            <h6>Details:</h6>
+                            ${detailsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+            accordion.insertAdjacentHTML('beforeend', itemHtml);
+        }
+
+        eventSource.onmessage = function (event) {
+            const data = JSON.parse(event.data);
+
+            updateStatusBadge(data.status);
+            progressMessage.textContent = data.progress_message || '...';
+
+            if(data.new_vulnerabilities) {
+                data.new_vulnerabilities.forEach(createVulnerabilityAccordionItem);
+            }
+
+            if (data.status === 'RUNNING') {
+                progressBar.style.width = '50%';
+                progressBar.classList.add('progress-bar-animated');
+                loadingState.classList.remove('d-none');
+            } else if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+                progressBar.style.width = '100%';
+                progressBar.classList.remove('progress-bar-animated');
+                progressContainer.setAttribute('aria-valuenow', 100);
+
+                if (data.status === 'COMPLETED') {
+                    progressBar.classList.remove('bg-info');
+                    progressBar.classList.add('bg-success');
+                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} vulnerabilities.`;
+                    if (vulnerabilityCount === 0) {
+                        loadingState.classList.add('d-none');
+                        noVulnsFoundMessage.classList.remove('d-none');
+                    }
+                } else {
+                     progressBar.classList.remove('bg-info');
+                     progressBar.classList.add('bg-danger');
+                     progressMessage.textContent = `Scan failed at ${data.end_time}. Check logs for details.`;
+                }
+
+                eventSource.close();
+            }
+        };
+
+        eventSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
+            updateStatusBadge('ERROR');
+            progressMessage.textContent = 'Connection to server lost. Please refresh.';
+            eventSource.close();
+        };
+
+        updateStatusBadge('{{ scan.status }}');
+    });
+</script>
+{% endblock %}

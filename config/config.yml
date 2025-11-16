@@ -1,0 +1,18 @@
+# Cấu hình chung cho ứng dụng Scanner
+scanner:
+  default_depth: 2          # Độ sâu crawl mặc định
+  default_threads: 10       # Số luồng chạy kiểm thử đồng thời mặc định
+
+# Cấu hình cho các request mạng
+requests:
+  timeout: 15               # Thời gian chờ (giây) cho mỗi request
+  user_agents:              # Danh sách User-Agent để xoay vòng
+    - 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    - 'Mozilla/5.0 (X11; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0'
+    - 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15'
+    - 'WebScanner/1.0 (Security Audit; +https://github.com/your-repo)'
+
+# Cấu hình logging
+logging:
+  level: "INFO"             # Mức độ log: DEBUG, INFO, WARNING, ERROR
+  log_file: "scanner.log"   # Tên file log
