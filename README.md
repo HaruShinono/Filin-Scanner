@@ -1,5 +1,4 @@
-# Web Vulnerability Scanner --- Offensive Security Edition
-
+# Web Vulnerability Scanner
 A high‑performance offensive security toolkit designed for automated
 discovery of web vulnerabilities. Built for security researchers,
 penetration testers, and red-team operators who require real‑time
@@ -41,12 +40,6 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 ``` bash
 pip install -r requirements.txt
 ```
-
-**Note:**\
-For Selenium-based dynamic analysis, ensure: - Google Chrome is
-installed\
-- ChromeDriver version matches Chrome\
-- ChromeDriver is in PATH
 
 ## 🚀 Usage Workflow
 
