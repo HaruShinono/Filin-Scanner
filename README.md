@@ -1,50 +1,108 @@
-# README.md
+# Web Vulnerability Scanner --- Offensive Security Edition
 
-# Web Vulnerability Scanner with Web UI
+A high‑performance offensive security toolkit designed for automated
+discovery of web vulnerabilities. Built for security researchers,
+penetration testers, and red-team operators who require real‑time
+insights, modular exploit logic, and a clean local UI for managing
+reconnaissance operations.
 
-Một công cụ quét lỗ hổng web được xây dựng bằng Python và Flask, cung cấp một giao diện người dùng local trực quan để quản lý và xem kết quả các phiên quét, tương tự như Nessus.
+## 🔥 Core Capabilities
 
-## Tính năng Chính
+-   **Local Web Interface (127.0.0.1:5000):** Operate like a lightweight
+    Nessus --- manage scans, review findings, and control tasks from a
+    browser-based dashboard.
+-   **Async Scan Engine:** Heavy scans execute in background workers,
+    ensuring the UI remains responsive even under aggressive load.
+-   **Live Intelligence Feed:** Vulnerability findings stream to the
+    dashboard in real time --- no manual refresh, no delays.
+-   **Modular Exploit Framework:** Add new vulnerability modules,
+    payloads, or exploit logic with minimal boilerplate.
+-   **Central Payload Registry:** All attack payloads, signatures, and
+    behavioral configs stored in a unified YAML file.
+-   **Persistent Scan Database:** SQLite backend preserves scan history,
+    timeline logs, and full vulnerability reports for later analysis.
 
--   **Giao diện Web Local:** Quản lý mọi thứ qua trình duyệt tại `http://127.0.0.1:5000`.
--   **Quét Bất đồng bộ:** Chạy các phiên quét nặng trong nền mà không làm treo giao diện.
--   **Cập nhật Real-time:** Xem tiến độ và kết quả lỗ hổng được cập nhật trực tiếp không cần refresh.
--   **Kiến trúc Module hóa:** Dễ dàng thêm hoặc chỉnh sửa các module quét lỗ hổng mới.
--   **Cấu hình Tập trung:** Toàn bộ payload và cấu hình được quản lý trong file YAML.
--   **Lưu trữ Lịch sử:** Mọi kết quả quét được lưu vào database SQLite để xem lại sau.
+## 🛠 Installation
 
-## Cài đặt
+``` bash
+git clone https://your-repository-url.com/web-scanner.git
+cd web-scanner
+```
 
-1.  **Clone repository:**
-    ```bash
-    git clone https://your-repository-url.com/web-scanner.git
-    cd web-scanner
-    ```
+### Virtual Environment (Recommended)
 
-2.  **Tạo và kích hoạt môi trường ảo (khuyến khích):**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # Trên Windows: venv\Scripts\activate
-    ```
+``` bash
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+```
 
-3.  **Cài đặt các thư viện cần thiết:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    *(Đối với Selenium, bạn cũng cần cài đặt Google Chrome và ChromeDriver tương ứng với phiên bản Chrome của bạn và đảm bảo nó nằm trong PATH.)*
+### Dependency Installation
 
-## Sử dụng
+``` bash
+pip install -r requirements.txt
+```
 
-1.  **Chạy ứng dụng web:**
-    ```bash
-    flask run
-    ```
-    *(Hoặc `python app.py` nếu bạn đã cấu hình)*
+**Note:**\
+For Selenium-based dynamic analysis, ensure: - Google Chrome is
+installed\
+- ChromeDriver version matches Chrome\
+- ChromeDriver is in PATH
 
-2.  **Mở trình duyệt:**
-    Truy cập địa chỉ [http://127.0.0.1:5000](http://127.0.0.1:5000).
+## 🚀 Usage Workflow
 
-3.  **Bắt đầu Quét:**
-    -   Nhập URL mục tiêu vào form "New Scan".
-    -   Nhấn "Start Scan".
-    -   Bạn sẽ được chuyển đến trang chi tiết để theo dõi tiến trình.
+### 1. Launch the System
+
+``` bash
+flask run
+```
+
+(or `python app.py` depending on configuration)
+
+### 2. Access the Web Console
+
+Open: **http://127.0.0.1:5000**
+
+### 3. Initiate an Offensive Scan
+
+-   Enter the target URL\
+-   Trigger **Start Scan**\
+-   Monitor the live output stream and analyze discovered vectors
+
+## 🧩 Extending the Framework
+
+-   Create a new module in `/modules/`\
+-   Implement `run(target)` with detection or exploit logic\
+-   Register payloads/signatures in `payloads.yaml`\
+-   The engine auto-loads modules on startup
+
+## 📌 Notes for Security Researchers
+
+-   Designed for controlled security assessments\
+-   Do **NOT** use on systems without authorization\
+-   Ideal for lab environments, CTF automation, recon pipelines, and
+    teaching offensive security methodologies
+
+## 📄 License
+
+MIT License
+
+Copyright (c) 2025 Haru Shinono
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
