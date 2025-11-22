@@ -18,9 +18,9 @@ def run_command(command: list) -> str | None:
             command,
             capture_output=True,
             text=True,
-            check=False, # Không raise exception nếu lệnh thất bại
+            check=False,
             encoding='utf-8',
-            errors='ignore' # Bỏ qua lỗi decoding
+            errors='ignore'
         )
         if result.returncode != 0:
             logger.error(f"Error running '{tool_name}': {result.stderr}")
