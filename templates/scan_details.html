@@ -44,50 +44,154 @@
         </div>
     </div>
 
-    <!-- Reconnaissance Findings Section -->
+    <!-- RECONNAISSANCE SECTION -->
     {% if scan.recon_findings %}
-    <h2>Reconnaissance Findings</h2>
-    <div class="card bg-body-secondary mb-4">
-        <div class="card-body">
-            <ul class="list-group list-group-flush">
-                {% for finding in scan.recon_findings %}
-                    <li class="list-group-item bg-transparent">
-                        {% set details = finding.get_details_as_dict() %}
-                        {% if finding.tool == 'wafw00f' %}
-                            <i class="bi bi-fire text-danger me-2"></i>
-                            <strong>WAF Detected:</strong>
-                            <span class="badge text-bg-danger">{{ details.firewall }} ({{ details.manufacturer }})</span>
-                        {% elif finding.tool == 'nmap' %}
-                            <i class="bi bi-ethernet text-info me-2"></i>
-                            <strong>Open Port:</strong>
-                            <span class="badge text-bg-info">{{ details.port }}/{{ details.protocol }}</span> - {{ details.service_name }}
-                            <code class="ms-2">{{ details.product }} {{ details.version }}</code>
-                        {% else %}
-                             <i class="bi bi-info-circle-fill me-2"></i>
-                            <strong>{{ finding.tool | title }}:</strong> {{ finding.finding_type }}
+    <h3 class="mb-3">Reconnaissance Findings</h3>
+
+    <div class="row mb-4">
+        <!-- Infrastructure & Open Ports Column -->
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-hdd-network me-2"></i> Infrastructure & Ports
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for finding in scan.recon_findings %}
+                            {% set details = finding.get_details_as_dict() %}
+
+                            <!-- WAF Findings -->
+                            {% if finding.tool == 'wafw00f' %}
+                                <li class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <span class="text-danger fw-bold"><i class="bi bi-fire me-2"></i>WAF Detected</span>
+                                        <span class="badge text-bg-danger">{{ details.firewall }}</span>
+                                    </div>
+                                    <small class="text-muted">Manufacturer: {{ details.manufacturer }}</small>
+                                </li>
+
+                            <!-- Nmap Open Ports -->
+                            {% elif finding.tool == 'nmap' %}
+                                <li class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <span>
+                                            <i class="bi bi-ethernet text-primary me-2"></i>
+                                            <strong>Port {{ details.port }}/{{ details.protocol }}</strong>
+                                        </span>
+                                        <span class="badge bg-secondary">{{ details.service_name }}</span>
+                                    </div>
+                                    {% if details.product or details.version %}
+                                    <small class="text-muted d-block ms-4">
+                                        {{ details.product }} {{ details.version }}
+                                    </small>
+                                    {% endif %}
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        <!-- Fallback if no infra findings -->
+                        {% if not scan.recon_findings | selectattr('tool', 'in', ['wafw00f', 'nmap']) | list %}
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No infrastructure data found.</li>
                         {% endif %}
-                    </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- DNS Records Column -->
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-globe me-2"></i> DNS Records
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% set dns_findings = scan.recon_findings | selectattr('tool', 'equalto', 'dnsrecon') | list %}
+
+                        {% for finding in dns_findings %}
+                            {% set details = finding.get_details_as_dict() %}
+                            <li class="list-group-item">
+                                <div class="row align-items-center">
+                                    <div class="col-2">
+                                        <span class="badge text-bg-info w-100">{{ details.type }}</span>
+                                    </div>
+                                    <div class="col-10 font-monospace text-break" style="font-size: 0.9em;">
+                                        {% if details.type in ['A', 'AAAA'] %}
+                                            {{ details.address }}
+                                        {% elif details.type in ['NS', 'MX', 'CNAME'] %}
+                                            {{ details.target }}
+                                        {% elif details.type == 'TXT' %}
+                                            {{ details.strings }}
+                                        {% elif details.type == 'SOA' %}
+                                            {{ details.mname }}
+                                        {% else %}
+                                            {{ details }}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </li>
+                        {% endfor %}
+
+                        {% if not dns_findings %}
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No DNS records found.</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NMAP VULNERABILITIES (NSE Scripts) -->
+    <!-- Filter for findings with tool 'nmap-vuln' -->
+    {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
+    {% if nmap_vulns %}
+    <div class="card border-danger mb-4 shadow-sm">
+        <div class="card-header text-bg-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> Nmap Vulnerability Scripts Results
+        </div>
+        <div class="card-body p-0">
+            <div class="accordion accordion-flush" id="nmapVulnAccordion">
+                {% for finding in nmap_vulns %}
+                    {% set details = finding.get_details_as_dict() %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingNmap{{ finding.id }}">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
+                                <span>
+                                    <strong>Port {{ details.port }}:</strong> {{ finding.finding_type }}
+                                </span>
+                            </button>
+                        </h2>
+                        <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
+                            <div class="accordion-body bg-light">
+                                <pre class="mb-0 p-2 border rounded bg-white"><code>{{ details.output }}</code></pre>
+                            </div>
+                        </div>
+                    </div>
                 {% endfor %}
-            </ul>
+            </div>
         </div>
     </div>
     {% endif %}
+    {% endif %}
 
-    <!-- Vulnerabilities Found Section -->
-    <h2>Vulnerabilities Found</h2>
-    <div id="vulnerabilities-accordion" class="accordion">
-        <div id="loading-state" class="text-center p-5">
+    <!-- CORE VULNERABILITIES SECTION (JavaScript Powered) -->
+    <h3 class="mb-3">Application Vulnerabilities</h3>
+    <div id="vulnerabilities-accordion" class="accordion shadow-sm">
+        <div id="loading-state" class="text-center p-5 bg-white border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2">Waiting for scan to start and find vulnerabilities...</p>
+            <p class="mt-2 text-muted">Analyzing application security...</p>
         </div>
         <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
              <i class="bi bi-shield-check fs-3"></i>
-             <h4 class="alert-heading mt-2">Scan Complete!</h4>
-             <p>No vulnerabilities were found for this target.</p>
+             <h4 class="alert-heading mt-2">Scan Complete</h4>
+             <p>No application-level vulnerabilities were detected.</p>
         </div>
     </div>
+
+    <!-- Spacer for better scrolling -->
+    <div class="mb-5"></div>
 </div>
 {% endblock %}
 
@@ -193,7 +297,7 @@
                 if (data.status === 'COMPLETED') {
                     progressBar.classList.remove('bg-info');
                     progressBar.classList.add('bg-success');
-                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} vulnerabilities.`;
+                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} app vulnerabilities.`;
                     if (vulnerabilityCount === 0) {
                         loadingState.classList.add('d-none');
                         noVulnsFoundMessage.classList.remove('d-none');
@@ -215,6 +319,7 @@
             eventSource.close();
         };
 
+        // Initial update
         updateStatusBadge('{{ scan.status }}');
     });
 </script>
