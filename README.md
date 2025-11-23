@@ -24,8 +24,8 @@ reconnaissance operations.
 ## 🛠 Installation
 
 ``` bash
-git clone https://your-repository-url.com/web-scanner.git
-cd web-scanner
+git clone https://github.com/HaruShinono/Simple-Web-Vulnerability-Scanner.git
+cd Simple-Web-Vulnerability-Scanner
 ```
 
 ### Virtual Environment (Recommended)
