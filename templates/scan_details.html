@@ -46,6 +46,15 @@
 
     <!-- RECONNAISSANCE SECTION -->
     {% if scan.recon_findings %}
+
+    <!-- [LOGIC] Tạo danh sách các port có lỗ hổng để highlight -->
+    {% set vulnerable_ports = [] %}
+    {% for finding in scan.recon_findings %}
+        {% if finding.tool == 'nmap-vuln' %}
+            {% set _ = vulnerable_ports.append(finding.get_details_as_dict().port) %}
+        {% endif %}
+    {% endfor %}
+
     <h3 class="mb-3">Reconnaissance Findings</h3>
 
     <div class="row mb-4">
@@ -62,7 +71,7 @@
 
                             <!-- WAF Findings -->
                             {% if finding.tool == 'wafw00f' %}
-                                <li class="list-group-item">
+                                <li class="list-group-item bg-danger-subtle border-start border-danger border-4">
                                     <div class="d-flex w-100 justify-content-between">
                                         <span class="text-danger fw-bold"><i class="bi bi-fire me-2"></i>WAF Detected</span>
                                         <span class="badge text-bg-danger">{{ details.firewall }}</span>
@@ -72,13 +81,24 @@
 
                             <!-- Nmap Open Ports -->
                             {% elif finding.tool == 'nmap' %}
-                                <li class="list-group-item">
+                                <!-- Kiểm tra port có nằm trong danh sách vulnerable_ports không -->
+                                {% set is_vuln = details.port in vulnerable_ports %}
+
+                                <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
                                     <div class="d-flex w-100 justify-content-between align-items-center">
                                         <span>
                                             <i class="bi bi-ethernet text-primary me-2"></i>
                                             <strong>Port {{ details.port }}/{{ details.protocol }}</strong>
                                         </span>
-                                        <span class="badge bg-secondary">{{ details.service_name }}</span>
+
+                                        <!-- Nếu port có lỗ hổng, hiện Badge cảnh báo -->
+                                        {% if is_vuln %}
+                                            <span class="badge bg-danger animate-pulse">
+                                                <i class="bi bi-exclamation-triangle-fill me-1"></i>VULN DETECTED
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ details.service_name }}</span>
+                                        {% endif %}
                                     </div>
                                     {% if details.product or details.version %}
                                     <small class="text-muted d-block ms-4">
@@ -89,7 +109,6 @@
                             {% endif %}
                         {% endfor %}
 
-                        <!-- Fallback if no infra findings -->
                         {% if not scan.recon_findings | selectattr('tool', 'in', ['wafw00f', 'nmap']) | list %}
                             <li class="list-group-item text-center text-muted fst-italic py-3">No infrastructure data found.</li>
                         {% endif %}
@@ -112,10 +131,10 @@
                             {% set details = finding.get_details_as_dict() %}
                             <li class="list-group-item">
                                 <div class="row align-items-center">
-                                    <div class="col-2">
+                                    <div class="col-3">
                                         <span class="badge text-bg-info w-100">{{ details.type }}</span>
                                     </div>
-                                    <div class="col-10 font-monospace text-break" style="font-size: 0.9em;">
+                                    <div class="col-9 font-monospace text-break" style="font-size: 0.85em;">
                                         {% if details.type in ['A', 'AAAA'] %}
                                             {{ details.address }}
                                         {% elif details.type in ['NS', 'MX', 'CNAME'] %}
@@ -142,28 +161,36 @@
     </div>
 
     <!-- NMAP VULNERABILITIES (NSE Scripts) -->
-    <!-- Filter for findings with tool 'nmap-vuln' -->
     {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
     {% if nmap_vulns %}
-    <div class="card border-danger mb-4 shadow-sm">
-        <div class="card-header text-bg-danger">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i> Nmap Vulnerability Scripts Results
+    <div class="card border-danger mb-4 shadow">
+        <div class="card-header text-bg-danger d-flex align-items-center">
+            <i class="bi bi-radioactive fs-4 me-2"></i>
+            <h5 class="mb-0">Critical Infrastructure Vulnerabilities (Nmap NSE)</h5>
         </div>
-        <div class="card-body p-0">
+        <div class="card-body p-0 bg-light">
             <div class="accordion accordion-flush" id="nmapVulnAccordion">
                 {% for finding in nmap_vulns %}
                     {% set details = finding.get_details_as_dict() %}
                     <div class="accordion-item">
                         <h2 class="accordion-header" id="headingNmap{{ finding.id }}">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
-                                <span>
-                                    <strong>Port {{ details.port }}:</strong> {{ finding.finding_type }}
-                                </span>
+                            <button class="accordion-button collapsed fw-bold text-danger" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
+                                <span class="badge bg-danger me-2">PORT {{ details.port }}</span>
+                                <span class="font-monospace">{{ finding.finding_type | replace('NSE: ', '') }}</span>
                             </button>
                         </h2>
                         <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
-                            <div class="accordion-body bg-light">
-                                <pre class="mb-0 p-2 border rounded bg-white"><code>{{ details.output }}</code></pre>
+                            <div class="accordion-body p-0">
+                                <!-- Terminal-like Output -->
+                                <div class="terminal-window">
+                                    <div class="terminal-header">
+                                        <span class="dot red"></span>
+                                        <span class="dot yellow"></span>
+                                        <span class="dot green"></span>
+                                        <span class="title">nmap output</span>
+                                    </div>
+                                    <pre class="terminal-body"><code>{{ details.output }}</code></pre>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -177,12 +204,15 @@
     <!-- CORE VULNERABILITIES SECTION (JavaScript Powered) -->
     <h3 class="mb-3">Application Vulnerabilities</h3>
     <div id="vulnerabilities-accordion" class="accordion shadow-sm">
+
+        <!-- Loading State (Đã sửa bg-white -> bg-body-secondary) -->
         <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2 text-muted">Analyzing application security...</p>
+            <p class="mt-2 text-body-secondary">Analyzing application security...</p>
         </div>
+
         <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
              <i class="bi bi-shield-check fs-3"></i>
              <h4 class="alert-heading mt-2">Scan Complete</h4>
@@ -190,7 +220,6 @@
         </div>
     </div>
 
-    <!-- Spacer for better scrolling -->
     <div class="mb-5"></div>
 </div>
 {% endblock %}
@@ -240,6 +269,8 @@
             loadingState.classList.add('d-none');
 
             const severityBadgeClass = getSeverityBadgeClass(vuln.severity);
+
+            // SỬA LỖI JSON: Sử dụng trực tiếp vuln.details
             const details = vuln.details;
 
             let detailsHtml = '<ul class="list-group list-group-flush">';
@@ -319,7 +350,6 @@
             eventSource.close();
         };
 
-        // Initial update
         updateStatusBadge('{{ scan.status }}');
     });
 </script>
