@@ -19,10 +19,18 @@ def dashboard():
 @main_routes.route('/scan/new', methods=['POST'])
 def new_scan():
     target_url = request.form.get('target_url')
+    # LẤY COOKIES TỪ FORM
+    auth_cookies = request.form.get('auth_cookies')
+
     if not target_url or not target_url.strip():
         return "Target URL is required!", 400
 
-    new_scan_obj = Scan(target_url=target_url.strip(), status='PENDING')
+    # LƯU VÀO DB
+    new_scan_obj = Scan(
+        target_url=target_url.strip(),
+        status='PENDING',
+        auth_cookies=auth_cookies.strip() if auth_cookies else None
+    )
     db.session.add(new_scan_obj)
     db.session.commit()
 

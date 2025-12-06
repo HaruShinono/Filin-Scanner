@@ -16,7 +16,7 @@ def create_app():
     app = Flask(__name__)
 
     # Cấu hình cho ứng dụng
-    app.config['SECRET_KEY'] = 'shinono-45ussr-135rss-991srs'
+    app.config['SECRET_KEY'] = 'your-very-secret-key-change-this'
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///scanner.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

@@ -19,7 +19,7 @@ class Scan(db.Model):
     status = db.Column(db.String(50), default='PENDING', nullable=False)
     start_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     end_time = db.Column(db.DateTime, nullable=True)
-
+    auth_cookies = db.Column(db.Text, nullable=True)
     vulnerabilities = db.relationship(
         'Vulnerability',
         backref='scan',

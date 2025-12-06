@@ -9,10 +9,12 @@ from typing import Callable, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
+import urllib3
 import yaml
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
-import urllib3
+
+# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
@@ -28,13 +30,17 @@ class Vulnerability:
 
 
 class Scanner:
-    def __init__(self, url: str, depth: int = 2, threads: int = 10):
+    def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10):
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
         self.threads = threads
 
         self.session = self._create_session()
+
+        if cookies:
+            self._apply_cookies(cookies)
+
         self.visited_urls: Set[str] = set()
         self.lock = threading.Lock()
 
@@ -54,6 +60,19 @@ class Scanner:
         })
         session.verify = False
         return session
+
+    def _apply_cookies(self, cookie_string: str):
+        try:
+            cookie_dict = {}
+            for item in cookie_string.split(';'):
+                if '=' in item:
+                    name, value = item.strip().split('=', 1)
+                    cookie_dict[name] = value
+
+            self.session.cookies.update(cookie_dict)
+            logger.info(f"Authenticated Scan enabled. Cookies applied: {list(cookie_dict.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to parse cookies: {e}")
 
     def _load_payload_config(self) -> dict:
         config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'payloads.yml')

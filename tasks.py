@@ -2,13 +2,16 @@ import json
 import traceback
 from datetime import datetime
 from urllib.parse import urlparse
+
 from factory import create_app, db
 from models import ReconFinding, Scan, Vulnerability
 from scanner_core.scanner import Scanner
 from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
+
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
+from integrations.nuclei_scanner import run_nuclei
 
 
 def run_scan_task(scan_id: int):
@@ -24,6 +27,7 @@ def run_scan_task(scan_id: int):
         db.session.commit()
 
         try:
+            # --- PHASE 1: RECONNAISSANCE ---
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...")
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
@@ -82,7 +86,26 @@ def run_scan_task(scan_id: int):
 
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.")
 
-            # 4. Core Vulnerability Scanning
+            # --- PHASE 2: NUCLEI SCANNING ---
+            print(f"[Scan ID: {scan_id}] Running Nuclei scanner...")
+            nuclei_results = run_nuclei(scan.target_url)
+
+            for n_vuln in nuclei_results:
+                print(f"  [Scan ID: {scan_id}] Nuclei found: {n_vuln['type']}")
+
+                vulnerability_model = Vulnerability(
+                    scan_id=scan.id,
+                    type=f"[Nuclei] {n_vuln['type']}",
+                    subcategory=n_vuln['details'].get('template_id'),
+                    url=n_vuln['url'],
+                    severity=n_vuln['severity'],
+                    details=json.dumps(n_vuln['details'], indent=2)
+                )
+                db.session.add(vulnerability_model)
+
+            db.session.commit()
+
+            # --- PHASE 3: CORE PYTHON SCANNING ---
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} at {vuln.url}")
@@ -97,7 +120,11 @@ def run_scan_task(scan_id: int):
                     db.session.add(vulnerability_model)
                     db.session.commit()
 
-            scanner_instance = Scanner(url=scan.target_url)
+            # Initialize Scanner with Auth Cookies if available
+            scanner_instance = Scanner(
+                url=scan.target_url,
+                cookies=scan.auth_cookies
+            )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
             scan.status = 'COMPLETED'
