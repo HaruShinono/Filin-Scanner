@@ -13,3 +13,5 @@ requests_cache
 vulners
 nuclei
 sqlmap
+dnsrecon
+wafw00f
