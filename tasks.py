@@ -1,6 +1,6 @@
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from factory import create_app, db
@@ -19,7 +19,8 @@ from integrations.sqlmap_scanner import run_sqlmap
 def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
-        scan = Scan.query.get(scan_id)
+        # Use db.session.get() instead of Query.get() (SQLAlchemy 2.0 style)
+        scan = db.session.get(Scan, scan_id)
         if not scan:
             print(f"Error: Scan with ID {scan_id} not found.")
             return
@@ -200,13 +201,16 @@ def run_scan_task(scan_id: int):
 
             db.session.rollback()
 
-            scan = Scan.query.get(scan_id)
+            # Re-fetch scan object to update status
+            scan = db.session.get(Scan, scan_id)
             if scan:
                 scan.status = 'FAILED'
 
         finally:
-            scan = Scan.query.get(scan_id)
+            # Re-fetch scan object to ensure session is attached for final update
+            scan = db.session.get(Scan, scan_id)
             if scan:
-                scan.end_time = datetime.utcnow()
+                # Use timezone-aware UTC datetime
+                scan.end_time = datetime.now(timezone.utc)
                 db.session.commit()
             print(f"Worker finished for Scan ID: {scan_id}")
