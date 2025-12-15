@@ -19,19 +19,19 @@ from integrations.sqlmap_scanner import run_sqlmap
 def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
-        # Use db.session.get() instead of Query.get() (SQLAlchemy 2.0 style)
+        # Use db.session.get() for SQLAlchemy 2.0 compatibility
         scan = db.session.get(Scan, scan_id)
         if not scan:
-            print(f"Error: Scan with ID {scan_id} not found.")
+            print(f"Error: Scan with ID {scan_id} not found.", flush=True)
             return
 
-        print(f"Worker started for Scan ID: {scan_id}, Target: {scan.target_url}")
+        print(f"Worker started for Scan ID: {scan_id}, Target: {scan.target_url}", flush=True)
         scan.status = 'RUNNING'
         db.session.commit()
 
         try:
             # --- PHASE 1: RECONNAISSANCE ---
-            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...")
+            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
@@ -81,7 +81,8 @@ def run_scan_task(scan_id: int):
                     version = port_info.get('version')
 
                     if product and version:
-                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...")
+                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
+                              flush=True)
                         vulns = audit_service_version(product, version)
 
                         if vulns:
@@ -111,7 +112,7 @@ def run_scan_task(scan_id: int):
                                 details=json.dumps(audit_details, indent=2)
                             )
                             db.session.add(vulnerability_model)
-                            print(f"  [Auditor] Found vulnerabilities for {product} {version}")
+                            print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
 
                 # B. Save Nmap Script Vulnerabilities
                 for vuln_info in nmap_data.get('vulnerabilities', []):
@@ -125,14 +126,14 @@ def run_scan_task(scan_id: int):
 
                 db.session.commit()
 
-            print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.")
+            print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
             # --- PHASE 2: NUCLEI SCANNING ---
-            print(f"[Scan ID: {scan_id}] Running Nuclei scanner...")
+            print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             nuclei_results = run_nuclei(scan.target_url)
 
             for n_vuln in nuclei_results:
-                print(f"  [Scan ID: {scan_id}] Nuclei found: {n_vuln['type']}")
+                print(f"  [Scan ID: {scan_id}] Nuclei found: {n_vuln['type']}", flush=True)
 
                 vulnerability_model = Vulnerability(
                     scan_id=scan.id,
@@ -147,13 +148,12 @@ def run_scan_task(scan_id: int):
             db.session.commit()
 
             # --- PHASE 3: SQLMAP SCANNING ---
-            print(f"[Scan ID: {scan_id}] Running sqlmap...")
+            print(f"[Scan ID: {scan_id}] Running sqlmap (Check console for progress)...", flush=True)
             sqlmap_results = run_sqlmap(scan.target_url, scan.auth_cookies)
 
             for result in sqlmap_results:
-                print(f"  [Scan ID: {scan_id}] SQLMap found injection!")
+                print(f"  [Scan ID: {scan_id}] SQLMap found injection!", flush=True)
 
-                # Determine title based on count
                 vuln_count = len(result.get('findings', []))
                 title = f"SQL Injection (Verified by sqlmap) - {vuln_count} points"
 
@@ -170,9 +170,11 @@ def run_scan_task(scan_id: int):
             db.session.commit()
 
             # --- PHASE 4: CORE PYTHON SCANNING ---
+            print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
+
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
-                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} at {vuln.url}")
+                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} at {vuln.url}", flush=True)
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
                         type=vuln.type,
@@ -192,25 +194,23 @@ def run_scan_task(scan_id: int):
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
             scan.status = 'COMPLETED'
-            print(f"Scan ID: {scan_id} completed successfully.")
+            print(f"Scan ID: {scan_id} completed successfully.", flush=True)
 
         except Exception as e:
-            print(f"Scan ID: {scan_id} for target {scan.target_url} failed.")
-            print(f"Error details: {e}")
+            print(f"Scan ID: {scan_id} for target {scan.target_url} failed.", flush=True)
+            print(f"Error details: {e}", flush=True)
             traceback.print_exc()
 
             db.session.rollback()
 
-            # Re-fetch scan object to update status
             scan = db.session.get(Scan, scan_id)
             if scan:
                 scan.status = 'FAILED'
 
         finally:
-            # Re-fetch scan object to ensure session is attached for final update
             scan = db.session.get(Scan, scan_id)
             if scan:
-                # Use timezone-aware UTC datetime
+                # Use timezone-aware UTC
                 scan.end_time = datetime.now(timezone.utc)
                 db.session.commit()
-            print(f"Worker finished for Scan ID: {scan_id}")
+            print(f"Worker finished for Scan ID: {scan_id}", flush=True)

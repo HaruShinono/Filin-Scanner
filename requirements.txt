@@ -11,4 +11,5 @@ WeasyPrint
 packaging
 requests_cache
 vulners
+nuclei
 sqlmap
