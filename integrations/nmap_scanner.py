@@ -4,18 +4,13 @@ from .tool_runner import run_command
 
 
 def run_nmap(target: str) -> dict:
-    """
-    Runs nmap to check ports and run vulnerability scripts.
-    Returns a dict with 'ports' and 'vulnerabilities'.
-    """
     results = {
         'ports': [],
         'vulnerabilities': []
     }
 
-    # Added '--script vuln': This tells nmap to run vulnerability detection scripts.
-    # Note: This increases scan time significantly.
-    command = ['nmap', '-F', '-sV', '--script', 'vuln', target, '-oX', '-']
+    command = ['nmap', '-F', '-sV', '-Pn', '--script', 'vuln', target, '-oX', '-']
+
     xml_output = run_command(command)
 
     if not xml_output:
@@ -33,7 +28,6 @@ def run_nmap(target: str) -> dict:
                 product = service.attrib.get('product', '') if service is not None else ''
                 version = service.attrib.get('version', '') if service is not None else ''
 
-                # 1. Add to Port findings
                 results['ports'].append({
                     "port": port_id,
                     "protocol": protocol,
@@ -42,12 +36,10 @@ def run_nmap(target: str) -> dict:
                     "version": version
                 })
 
-                # 2. Check for Script (Vulnerability) findings within this port
                 for script in port.findall("./script"):
                     script_id = script.attrib.get('id')
                     output = script.attrib.get('output')
 
-                    # Store as a vulnerability finding
                     results['vulnerabilities'].append({
                         "port": port_id,
                         "protocol": protocol,
