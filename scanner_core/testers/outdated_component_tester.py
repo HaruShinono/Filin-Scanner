@@ -1,38 +1,31 @@
 import re
 from typing import List
 from urllib.parse import urljoin
-
 import requests
 from bs4 import BeautifulSoup
 
 from scanner_core.scanner import Vulnerability
 from .base_tester import BaseTester
+from integrations.retirejs_provider import get_retirejs_database, check_library_version
 
 
 class OutdatedComponentTester(BaseTester):
     def __init__(self, session: requests.Session, config: dict):
         super().__init__(session, config)
-        self.libraries_to_check = self.config.get('libraries', [])
+        # Tải database ngay khi khởi tạo scanner
+        self.retire_db = get_retirejs_database()
 
-    def _normalize_version(self, version_str: str) -> List[int]:
-        try:
-            return [int(part) for part in re.findall(r'\d+', version_str)]
-        except (ValueError, TypeError):
-            return []
-
-    def _is_outdated(self, current_version_str: str, latest_version_str: str) -> bool:
-        current_normalized = self._normalize_version(current_version_str)
-        latest_normalized = self._normalize_version(latest_version_str)
-
-        if not current_normalized or not latest_normalized:
-            return False
-
-        # Pad shorter version list with zeros for comparison
-        max_len = max(len(current_normalized), len(latest_normalized))
-        current_normalized.extend([0] * (max_len - len(current_normalized)))
-        latest_normalized.extend([0] * (max_len - len(latest_normalized)))
-
-        return current_normalized < latest_normalized
+        # Mặc định một số regex để nhận diện tên thư viện từ URL/Script
+        # Retire.js DB cũng có regex nhưng để đơn giản ta dùng map này kết hợp
+        self.lib_patterns = {
+            'jquery': r'jquery[.-]v?([0-9.]+)',
+            'bootstrap': r'bootstrap[.-]v?([0-9.]+)',
+            'angular': r'angular[.-]v?([0-9.]+)',
+            'react': r'react[.-]v?([0-9.]+)',
+            'vue': r'vue[.-]v?([0-9.]+)',
+            'moment': r'moment[.-]v?([0-9.]+)',
+            'lodash': r'lodash[.-]v?([0-9.]+)'
+        }
 
     def test(self, url: str) -> List[Vulnerability]:
         vulns = []
@@ -45,50 +38,61 @@ class OutdatedComponentTester(BaseTester):
             scripts = soup.find_all('script', src=True)
 
             for script in scripts:
-                script_src = script.get('src')
-                if not script_src:
-                    continue
+                src = script.get('src')
+                if not src: continue
 
-                full_script_url = urljoin(url, script_src)
+                # 1. Nhận diện thư viện và version từ URL (filename)
+                # Ví dụ: /js/jquery-3.5.1.min.js
+                lib_name = None
+                detected_version = None
 
-                try:
-                    js_resp = self.fetch(full_script_url)
-                    if not js_resp or js_resp.status_code != 200:
-                        continue
+                src_lower = src.lower()
 
-                    # Read only the first few KB to be efficient
-                    content_head = js_resp.text[:5000]
-
-                    for lib in self.libraries_to_check:
-                        lib_name = lib.get('name')
-                        lib_regex = lib.get('regex')
-                        lib_latest = lib.get('latest')
-
-                        if not all([lib_name, lib_regex, lib_latest]):
-                            continue
-
-                        match = re.search(lib_regex, content_head, re.IGNORECASE)
+                for name, pattern in self.lib_patterns.items():
+                    if name in src_lower:
+                        match = re.search(pattern, src_lower)
                         if match:
+                            lib_name = name
                             detected_version = match.group(1)
-                            if self._is_outdated(detected_version, lib_latest):
-                                vulns.append(Vulnerability(
-                                    type='Using Components with Known Vulnerabilities',
-                                    subcategory='Outdated Library',
-                                    url=url,
-                                    details={
-                                        'library': lib_name,
-                                        'detected_version': detected_version,
-                                        'latest_version': lib_latest,
-                                        'resource_url': full_script_url
-                                    },
-                                    severity='Medium'
-                                ))
-                            break  # Assume one file contains only one library
+                            break
 
-                except requests.RequestException:
-                    continue
+                # Nếu không tìm thấy trong URL, có thể fetch file JS để check header (Optional - Tốn thời gian)
+                # Ở đây ta tập trung vào filename cho nhanh
 
-        except Exception:
+                if lib_name and detected_version:
+                    # 2. Tra cứu trong database Retire.js
+                    known_vulns = check_library_version(lib_name, detected_version, self.retire_db)
+
+                    if known_vulns:
+                        # Chọn severity cao nhất tìm được
+                        highest_severity = 'Medium'
+                        details_list = []
+
+                        for v in known_vulns:
+                            sev = v['severity'].title()  # low -> Low
+                            if sev == 'High' or sev == 'Critical':
+                                highest_severity = sev
+
+                            details_list.append({
+                                'severity': sev,
+                                'identifiers': v['identifiers'],
+                                'info': v['info']
+                            })
+
+                        vulns.append(Vulnerability(
+                            type='Using Components with Known Vulnerabilities',
+                            subcategory=f'{lib_name.title()} {detected_version}',
+                            url=url,
+                            details={
+                                'library': lib_name,
+                                'version': detected_version,
+                                'resource': src,
+                                'vulnerabilities': details_list
+                            },
+                            severity=highest_severity
+                        ))
+
+        except Exception as e:
             pass
 
         return vulns

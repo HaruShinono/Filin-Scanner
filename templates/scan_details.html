@@ -10,9 +10,15 @@
             <h1 class="mb-0">Scan Details</h1>
             <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
         </div>
-        <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Dashboard
-        </a>
+        <div>
+            <!-- NÚT MỚI -->
+            <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
+                <i class="bi bi-file-earmark-pdf"></i> Export PDF
+            </a>
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
     </div>
 
     <!-- Scan Summary Card -->

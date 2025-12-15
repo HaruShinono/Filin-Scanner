@@ -2,7 +2,7 @@ import json
 import time
 from flask import (Blueprint, Response, current_app, redirect, render_template,
                    request, url_for)
-
+from weasyprint import HTML
 from factory import db, executor
 from models import Scan
 from tasks import run_scan_task
@@ -88,3 +88,17 @@ def stream(scan_id):
 
     app_instance = current_app._get_current_object()
     return Response(event_stream(app_instance), mimetype='text/event-stream')
+
+
+@main_routes.route('/scan/<int:scan_id>/report/pdf')
+def export_pdf(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    html_string = render_template('report_pdf.html', scan=scan)
+    pdf = HTML(string=html_string).write_pdf()
+    return Response(
+        pdf,
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment;filename=report_scan_{scan.id}.pdf'
+        }
+    )

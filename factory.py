@@ -10,9 +10,6 @@ executor = ProcessPoolExecutor(max_workers=2)
 
 # 2. Tạo một hàm "Application Factory"
 def create_app():
-    """
-    Hàm này chịu trách nhiệm tạo và cấu hình đối tượng ứng dụng Flask.
-    """
     app = Flask(__name__)
 
     # Cấu hình cho ứng dụng
