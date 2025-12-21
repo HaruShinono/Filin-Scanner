@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ### 1. Launch the System
 
 ``` bash
-python -m flask run
+python -m flask run #./venv/bin/python -m flask run
 ```
 
 (or `python app.py` depending on configuration)
