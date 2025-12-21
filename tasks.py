@@ -1,5 +1,6 @@
 import json
 import traceback
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -16,10 +17,55 @@ from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
 
 
+def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
+    """
+    Generates a unique hash for a vulnerability to prevent duplicates.
+
+    Logic:
+    1. Global/Config Issues (e.g., Missing Headers, SSL): Hash based on [Type + Subcategory + Domain].
+       - Ignores specific paths because these issues usually affect the whole site.
+    2. Application Issues (e.g., SQLi, XSS): Hash based on [Type + Subcategory + Full URL + Params].
+       - Keeps path and parameters because flaws are specific to inputs.
+    """
+    # List of vulnerability types considered "Global" or "Configuration" based
+    GLOBAL_VULN_TYPES = [
+        'Cryptographic Failure',
+        'Security Misconfiguration',
+        'Security Logging and Monitoring Failure',
+        'Outdated Service Component',
+        'Using Components with Known Vulnerabilities',
+        'Software and Data Integrity Failure'
+    ]
+
+    parsed = urlparse(vuln.url)
+    domain = parsed.netloc
+    path = parsed.path
+
+    # Extract details to differentiate specific findings (like parameter names)
+    details_str = ""
+    if isinstance(vuln.details, dict):
+        if 'parameter' in vuln.details:
+            details_str += f"|param:{vuln.details['parameter']}"
+        elif 'library' in vuln.details:
+            details_str += f"|lib:{vuln.details['library']}"
+        elif 'cookie' in vuln.details:
+            details_str += f"|cookie:{vuln.details['cookie'].split('=')[0]}"
+
+            # Generate the unique string
+    if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
+        # Config issues: Type + Domain + (specific detail like lib name)
+        unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
+    else:
+        # App issues: Type + Full URL Path + Params
+        unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}|{path}{details_str}"
+
+    # Return MD5 hash
+    return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
+
+
 def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
-        # Use db.session.get() for SQLAlchemy 2.0 compatibility
         scan = db.session.get(Scan, scan_id)
         if not scan:
             print(f"Error: Scan with ID {scan_id} not found.", flush=True)
@@ -28,6 +74,9 @@ def run_scan_task(scan_id: int):
         print(f"Worker started for Scan ID: {scan_id}, Target: {scan.target_url}", flush=True)
         scan.status = 'RUNNING'
         db.session.commit()
+
+        # Set to track unique vulnerability hashes found in this scan
+        seen_vuln_hashes = set()
 
         try:
             # --- PHASE 1: RECONNAISSANCE ---
@@ -61,13 +110,12 @@ def run_scan_task(scan_id: int):
                     db.session.add(finding)
                 db.session.commit()
 
-            # 3. Run Nmap (Ports, Service Audit, and NSE Scripts)
+            # 3. Run Nmap
             if domain:
                 nmap_data = run_nmap(domain)
 
                 # A. Process Open Ports and Audit Services
                 for port_info in nmap_data.get('ports', []):
-                    # Save Port Finding
                     finding = ReconFinding(
                         scan_id=scan.id,
                         tool='nmap',
@@ -76,7 +124,7 @@ def run_scan_task(scan_id: int):
                     )
                     db.session.add(finding)
 
-                    # AUDIT: Check if service version is outdated/vulnerable via Vulners
+                    # AUDIT: Check service versions
                     product = port_info.get('product')
                     version = port_info.get('version')
 
@@ -86,7 +134,6 @@ def run_scan_task(scan_id: int):
                         vulns = audit_service_version(product, version)
 
                         if vulns:
-                            # Calculate severity based on Max CVSS Score
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
                             severity = 'Low'
                             if max_score >= 9.0:
@@ -103,16 +150,29 @@ def run_scan_task(scan_id: int):
                                 'cves': vulns
                             }
 
-                            vulnerability_model = Vulnerability(
-                                scan_id=scan.id,
+                            # Create temporary object for dedup check
+                            temp_vuln = VulnerabilityDataClass(
                                 type='Outdated Service Component',
                                 subcategory=f"{product} {version}",
                                 url=f"{scan.target_url} (Port {port_info.get('port')})",
                                 severity=severity,
-                                details=json.dumps(audit_details, indent=2)
+                                details=audit_details
                             )
-                            db.session.add(vulnerability_model)
-                            print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
+
+                            # Deduplication Check
+                            v_hash = _generate_dedup_hash(temp_vuln)
+                            if v_hash not in seen_vuln_hashes:
+                                vulnerability_model = Vulnerability(
+                                    scan_id=scan.id,
+                                    type=temp_vuln.type,
+                                    subcategory=temp_vuln.subcategory,
+                                    url=temp_vuln.url,
+                                    severity=temp_vuln.severity,
+                                    details=json.dumps(temp_vuln.details, indent=2)
+                                )
+                                db.session.add(vulnerability_model)
+                                seen_vuln_hashes.add(v_hash)
+                                print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
 
                 # B. Save Nmap Script Vulnerabilities
                 for vuln_info in nmap_data.get('vulnerabilities', []):
@@ -135,15 +195,27 @@ def run_scan_task(scan_id: int):
             for n_vuln in nuclei_results:
                 print(f"  [Scan ID: {scan_id}] Nuclei found: {n_vuln['type']}", flush=True)
 
-                vulnerability_model = Vulnerability(
-                    scan_id=scan.id,
+                nuclei_temp = VulnerabilityDataClass(
                     type=f"[Nuclei] {n_vuln['type']}",
                     subcategory=n_vuln['details'].get('template_id'),
                     url=n_vuln['url'],
                     severity=n_vuln['severity'],
-                    details=json.dumps(n_vuln['details'], indent=2)
+                    details=n_vuln['details']
                 )
-                db.session.add(vulnerability_model)
+
+                # Deduplication Check
+                v_hash = _generate_dedup_hash(nuclei_temp)
+                if v_hash not in seen_vuln_hashes:
+                    vulnerability_model = Vulnerability(
+                        scan_id=scan.id,
+                        type=nuclei_temp.type,
+                        subcategory=nuclei_temp.subcategory,
+                        url=nuclei_temp.url,
+                        severity=nuclei_temp.severity,
+                        details=json.dumps(nuclei_temp.details, indent=2)
+                    )
+                    db.session.add(vulnerability_model)
+                    seen_vuln_hashes.add(v_hash)
 
             db.session.commit()
 
@@ -157,6 +229,7 @@ def run_scan_task(scan_id: int):
                 vuln_count = len(result.get('findings', []))
                 title = f"SQL Injection (Verified by sqlmap) - {vuln_count} points"
 
+                # SQLMap results are usually aggregated per target, simple logic is fine
                 vulnerability_model = Vulnerability(
                     scan_id=scan.id,
                     type=title,
@@ -174,7 +247,14 @@ def run_scan_task(scan_id: int):
 
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
-                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} at {vuln.url}", flush=True)
+                    # Deduplication Check
+                    v_hash = _generate_dedup_hash(vuln)
+
+                    if v_hash in seen_vuln_hashes:
+                        return
+
+                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
+
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
                         type=vuln.type,
@@ -186,7 +266,9 @@ def run_scan_task(scan_id: int):
                     db.session.add(vulnerability_model)
                     db.session.commit()
 
-            # Initialize Scanner with Auth Cookies if available
+                    seen_vuln_hashes.add(v_hash)
+
+            # Initialize Scanner
             scanner_instance = Scanner(
                 url=scan.target_url,
                 cookies=scan.auth_cookies
@@ -210,7 +292,6 @@ def run_scan_task(scan_id: int):
         finally:
             scan = db.session.get(Scan, scan_id)
             if scan:
-                # Use timezone-aware UTC
                 scan.end_time = datetime.now(timezone.utc)
                 db.session.commit()
             print(f"Worker finished for Scan ID: {scan_id}", flush=True)

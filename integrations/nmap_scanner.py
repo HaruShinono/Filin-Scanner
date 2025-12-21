@@ -10,12 +10,9 @@ def run_nmap(target: str) -> dict:
     }
 
     command = ['nmap', '-F', '-sV', '-Pn', '--script', 'vuln', target, '-oX', '-']
-
     xml_output = run_command(command)
-
     if not xml_output:
         return results
-
     try:
         root = ET.fromstring(xml_output)
         for port in root.findall(".//port"):

@@ -31,11 +31,11 @@ class XssTester(BaseTester):
                     if not resp or resp.status_code != 200:
                         continue
 
-                    # Check for basic reflection first
+                    # Quick check: Is the payload reflected at all?
                     if payload in resp.text:
-                        # More thorough check to see if it's in a dangerous context
+                        # VERIFY LOGIC: Parse HTML to ensure it's in an executable context
                         soup = BeautifulSoup(resp.text, 'html.parser')
-                        if self._is_in_dangerous_context(soup, payload):
+                        if self._verify_execution_context(soup, payload):
                             return Vulnerability(
                                 type='Cross-Site Scripting (XSS)',
                                 subcategory='Reflected XSS',
@@ -43,7 +43,7 @@ class XssTester(BaseTester):
                                 details={
                                     'parameter': param,
                                     'payload': payload,
-                                    'evidence': 'The payload was reflected in a potentially executable context in the HTML response.'
+                                    'evidence': 'Payload was reflected in an executable HTML context (script, event handler, or raw HTML).'
                                 },
                                 severity='High'
                             )
@@ -54,24 +54,44 @@ class XssTester(BaseTester):
 
         return None
 
-    def _is_in_dangerous_context(self, soup: BeautifulSoup, payload: str) -> bool:
-        # Check if payload is inside a <script> tag (but not as a string literal)
-        for tag in soup.find_all('script'):
-            if tag.string and payload in tag.string:
-                # Basic check to avoid flagging json/string data
-                if not (tag.string.strip().startswith(('"', "'", '{', '['))):
-                    return True
+    def _verify_execution_context(self, soup: BeautifulSoup, payload: str) -> bool:
+        """
+        Verifies if the reflected payload is actually executable.
+        """
+        payload_str = str(payload)
 
-        # Check if payload is in an event handler attribute (e.g., onload, onerror)
+        # 1. Check for Safe Tags (textarea, title, code, etc.)
+        # If the payload is strictly inside these tags, it won't execute.
+        safe_tags = ['textarea', 'title', 'pre', 'code', 'xmp', 'noembed', 'noframes', 'style']
+        for tag in safe_tags:
+            for element in soup.find_all(tag):
+                if element.string and payload_str in element.string:
+                    return False
+
+                    # 2. Check Script Context
+        for script in soup.find_all('script'):
+            if script.string and payload_str in script.string:
+                # If inside quotes, it might be safe (simplified check)
+                # Ideally, a JS parser is needed, but this catches basic string literals
+                if f'"{payload_str}"' in script.string or f"'{payload_str}'" in script.string:
+                    return False
+                return True
+
+                # 3. Check Attribute Context (Event Handlers)
         for tag in soup.find_all(True):
             for attr, value in tag.attrs.items():
-                if attr.lower().startswith('on') and isinstance(value, str) and payload in value:
-                    return True
+                if attr.lower().startswith('on'):
+                    # If payload is injected into an event handler
+                    if isinstance(value, str) and payload_str in value:
+                        return True
+                    elif isinstance(value, list) and any(payload_str in v for v in value):
+                        return True
 
-        # Check for cases like <img src="[payload]"> which won't be caught by the above
-        # This is a heuristic; a full check would require a browser context (DOM XSS)
-        # For simplicity, we consider direct reflection of tags as dangerous
-        if payload.startswith('<') and payload.endswith('>') and payload in str(soup):
+        # 4. Check HTML Context (Injection of new tags)
+        # If the payload starts with < and ends with >, check if it breaks out as raw HTML
+        # Because BS4 parses the broken HTML, we check if the raw payload exists in the string representation
+        # excluding the safe tags checked above.
+        if payload_str.startswith('<') and payload_str in str(soup):
             return True
 
         return False

