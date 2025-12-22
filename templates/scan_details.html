@@ -11,7 +11,6 @@
             <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
         </div>
         <div>
-            <!-- NÚT MỚI -->
             <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
                 <i class="bi bi-file-earmark-pdf"></i> Export PDF
             </a>
@@ -53,7 +52,7 @@
     <!-- RECONNAISSANCE SECTION -->
     {% if scan.recon_findings %}
 
-    <!-- [LOGIC] Tạo danh sách các port có lỗ hổng để highlight -->
+    <!-- Identify vulnerable ports for highlighting -->
     {% set vulnerable_ports = [] %}
     {% for finding in scan.recon_findings %}
         {% if finding.tool == 'nmap-vuln' %}
@@ -87,7 +86,6 @@
 
                             <!-- Nmap Open Ports -->
                             {% elif finding.tool == 'nmap' %}
-                                <!-- Kiểm tra port có nằm trong danh sách vulnerable_ports không -->
                                 {% set is_vuln = details.port in vulnerable_ports %}
 
                                 <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
@@ -97,7 +95,6 @@
                                             <strong>Port {{ details.port }}/{{ details.protocol }}</strong>
                                         </span>
 
-                                        <!-- Nếu port có lỗ hổng, hiện Badge cảnh báo -->
                                         {% if is_vuln %}
                                             <span class="badge bg-danger animate-pulse">
                                                 <i class="bi bi-exclamation-triangle-fill me-1"></i>VULN DETECTED
@@ -211,7 +208,6 @@
     <h3 class="mb-3">Application Vulnerabilities</h3>
     <div id="vulnerabilities-accordion" class="accordion shadow-sm">
 
-        <!-- Loading State (Đã sửa bg-white -> bg-body-secondary) -->
         <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
@@ -275,13 +271,49 @@
             loadingState.classList.add('d-none');
 
             const severityBadgeClass = getSeverityBadgeClass(vuln.severity);
-
-            // SỬA LỖI JSON: Sử dụng trực tiếp vuln.details
             const details = vuln.details;
+
+            // --- AI REMEDIATION UI GENERATION ---
+            const ai_suggestion = details.ai_suggestion;
+            let aiSuggestionHtml = '';
+            let aiTabButton = '';
+
+            if (ai_suggestion && ai_suggestion.explanation) {
+                // Determine ID for tabs based on vulnerability ID
+                const aiTabId = `ai-tab-${vuln.id}`;
+
+                aiTabButton = `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="ai-btn-${vuln.id}" data-bs-toggle="tab" data-bs-target="#${aiTabId}" type="button" role="tab">
+                        <i class="bi bi-stars text-warning me-1"></i>AI Suggestion
+                    </button>
+                </li>`;
+
+                aiSuggestionHtml = `
+                <div class="tab-pane fade" id="${aiTabId}" role="tabpanel">
+                    <div class="p-3">
+                        <h6 class="text-primary"><i class="bi bi-robot me-2"></i>AI Analysis</h6>
+                        <p class="text-body-secondary">${ai_suggestion.explanation}</p>
+
+                        <h6 class="mt-3 text-success"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
+                        <div class="terminal-window mt-2">
+                            <div class="terminal-header">
+                                <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+                                <span class="title">Secure Code Implementation</span>
+                            </div>
+                            <pre class="terminal-body"><code>${ai_suggestion.fixed_code}</code></pre>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            // -------------------------------------
 
             let detailsHtml = '<ul class="list-group list-group-flush">';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
+                    // Hide ai_suggestion key from the raw details list
+                    if (key === 'ai_suggestion') continue;
+
                     const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
                     detailsHtml += `<li class="list-group-item"><strong>${key}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
                 }
@@ -289,6 +321,26 @@
                  detailsHtml += `<li class="list-group-item"><code>${details}</code></li>`;
             }
             detailsHtml += '</ul>';
+
+            // Construct Tabs structure
+            const accordionBodyContent = `
+                <ul class="nav nav-tabs" id="vulnTab-${vuln.id}" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="details-btn-${vuln.id}" data-bs-toggle="tab" data-bs-target="#details-tab-${vuln.id}" type="button" role="tab">Technical Details</button>
+                    </li>
+                    ${aiTabButton}
+                </ul>
+                <div class="tab-content border-start border-end border-bottom bg-white">
+                    <div class="tab-pane fade show active" id="details-tab-${vuln.id}" role="tabpanel">
+                        <div class="p-3">
+                            <p><strong>Subcategory:</strong> ${vuln.subcategory || 'N/A'}</p>
+                            <p><strong>URL:</strong> <a href="${vuln.url}" target="_blank" rel="noopener noreferrer">${vuln.url}</a></p>
+                            ${detailsHtml}
+                        </div>
+                    </div>
+                    ${aiSuggestionHtml}
+                </div>
+            `;
 
             const itemHtml = `
                 <div class="accordion-item">
@@ -300,11 +352,8 @@
                         </button>
                     </h2>
                     <div id="collapse-${vuln.id}" class="accordion-collapse collapse" aria-labelledby="heading-${vuln.id}" data-bs-parent="#vulnerabilities-accordion">
-                        <div class="accordion-body">
-                            <p><strong>Subcategory:</strong> ${vuln.subcategory || 'N/A'}</p>
-                            <p><strong>URL:</strong> <a href="${vuln.url}" target="_blank" rel="noopener noreferrer">${vuln.url}</a></p>
-                            <h6>Details:</h6>
-                            ${detailsHtml}
+                        <div class="accordion-body p-0">
+                            ${accordionBodyContent}
                         </div>
                     </div>
                 </div>
@@ -356,6 +405,7 @@
             eventSource.close();
         };
 
+        // Initial update
         updateStatusBadge('{{ scan.status }}');
     });
 </script>

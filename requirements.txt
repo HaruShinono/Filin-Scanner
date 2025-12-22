@@ -16,3 +16,4 @@ nuclei
 sqlmap
 dnsrecon
 wafw00f
+ollama

@@ -15,19 +15,13 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
+from integrations.ai_remediator import generate_remediation
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     """
     Generates a unique hash for a vulnerability to prevent duplicates.
-
-    Logic:
-    1. Global/Config Issues (e.g., Missing Headers, SSL): Hash based on [Type + Subcategory + Domain].
-       - Ignores specific paths because these issues usually affect the whole site.
-    2. Application Issues (e.g., SQLi, XSS): Hash based on [Type + Subcategory + Full URL + Params].
-       - Keeps path and parameters because flaws are specific to inputs.
     """
-    # List of vulnerability types considered "Global" or "Configuration" based
     GLOBAL_VULN_TYPES = [
         'Cryptographic Failure',
         'Security Misconfiguration',
@@ -41,7 +35,6 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     domain = parsed.netloc
     path = parsed.path
 
-    # Extract details to differentiate specific findings (like parameter names)
     details_str = ""
     if isinstance(vuln.details, dict):
         if 'parameter' in vuln.details:
@@ -51,15 +44,11 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
         elif 'cookie' in vuln.details:
             details_str += f"|cookie:{vuln.details['cookie'].split('=')[0]}"
 
-            # Generate the unique string
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
-        # Config issues: Type + Domain + (specific detail like lib name)
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
     else:
-        # App issues: Type + Full URL Path + Params
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}|{path}{details_str}"
 
-    # Return MD5 hash
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
@@ -75,7 +64,6 @@ def run_scan_task(scan_id: int):
         scan.status = 'RUNNING'
         db.session.commit()
 
-        # Set to track unique vulnerability hashes found in this scan
         seen_vuln_hashes = set()
 
         try:
@@ -150,7 +138,6 @@ def run_scan_task(scan_id: int):
                                 'cves': vulns
                             }
 
-                            # Create temporary object for dedup check
                             temp_vuln = VulnerabilityDataClass(
                                 type='Outdated Service Component',
                                 subcategory=f"{product} {version}",
@@ -159,7 +146,6 @@ def run_scan_task(scan_id: int):
                                 details=audit_details
                             )
 
-                            # Deduplication Check
                             v_hash = _generate_dedup_hash(temp_vuln)
                             if v_hash not in seen_vuln_hashes:
                                 vulnerability_model = Vulnerability(
@@ -203,7 +189,6 @@ def run_scan_task(scan_id: int):
                     details=n_vuln['details']
                 )
 
-                # Deduplication Check
                 v_hash = _generate_dedup_hash(nuclei_temp)
                 if v_hash not in seen_vuln_hashes:
                     vulnerability_model = Vulnerability(
@@ -229,7 +214,6 @@ def run_scan_task(scan_id: int):
                 vuln_count = len(result.get('findings', []))
                 title = f"SQL Injection (Verified by sqlmap) - {vuln_count} points"
 
-                # SQLMap results are usually aggregated per target, simple logic is fine
                 vulnerability_model = Vulnerability(
                     scan_id=scan.id,
                     type=title,
@@ -247,13 +231,34 @@ def run_scan_task(scan_id: int):
 
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
-                    # Deduplication Check
                     v_hash = _generate_dedup_hash(vuln)
 
                     if v_hash in seen_vuln_hashes:
                         return
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
+
+                    # --- AI REMEDIATION INTEGRATION ---
+                    # Check if vulnerability is suitable for AI analysis
+                    if vuln.type in ['SQL Injection', 'Cross-Site Scripting (XSS)', 'Local File Inclusion',
+                                     'Broken Access Control']:
+                        evidence = f"URL: {vuln.url}\n"
+                        if 'parameter' in vuln.details:
+                            evidence += f"Parameter: {vuln.details['parameter']}\n"
+                        if 'payload' in vuln.details:
+                            evidence += f"Payload: {vuln.details['payload']}\n"
+
+                        # Call AI to generate fix (assuming PHP/General for now)
+                        ai_suggestion = generate_remediation(
+                            vulnerability_type=vuln.type,
+                            code_snippet=evidence,
+                            target_language="php"
+                        )
+
+                        # Add AI result to details
+                        if ai_suggestion:
+                            vuln.details['ai_suggestion'] = ai_suggestion
+                    # ----------------------------------
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
@@ -268,7 +273,6 @@ def run_scan_task(scan_id: int):
 
                     seen_vuln_hashes.add(v_hash)
 
-            # Initialize Scanner
             scanner_instance = Scanner(
                 url=scan.target_url,
                 cookies=scan.auth_cookies
