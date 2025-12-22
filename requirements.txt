@@ -7,7 +7,6 @@ requests
 beautifulsoup4
 lxml
 selenium
-chromium-driver
 WeasyPrint
 packaging
 requests_cache
