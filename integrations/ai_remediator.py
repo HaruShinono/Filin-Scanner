@@ -24,8 +24,7 @@ def generate_remediation(vulnerability_type: str, code_snippet: str, target_lang
     if not code_snippet:
         return {}
 
-    # --- Xây dựng Prompt (Câu lệnh) cho AI ---
-    # Đây là bước quan trọng nhất để AI trả về kết quả chất lượng.
+    # Prompt for Ollama:
     prompt = f"""
     You are a senior security engineer providing a code fix for a vulnerability.
     Your task is to analyze the vulnerability and provide a clear, concise, and secure code remediation.
