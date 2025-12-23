@@ -4,7 +4,6 @@
 
 {% block content %}
 <div class="container">
-    <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="mb-0">Scan Details</h1>
@@ -20,7 +19,6 @@
         </div>
     </div>
 
-    <!-- Scan Summary Card -->
     <div class="card bg-body-secondary mb-4">
         <div class="card-body">
             <div class="row">
@@ -49,10 +47,8 @@
         </div>
     </div>
 
-    <!-- RECONNAISSANCE SECTION -->
     {% if scan.recon_findings %}
 
-    <!-- [LOGIC] Tạo danh sách các port có lỗ hổng để highlight -->
     {% set vulnerable_ports = [] %}
     {% for finding in scan.recon_findings %}
         {% if finding.tool == 'nmap-vuln' %}
@@ -63,7 +59,6 @@
     <h3 class="mb-3">Reconnaissance Findings</h3>
 
     <div class="row mb-4">
-        <!-- Infrastructure & Open Ports Column -->
         <div class="col-md-6">
             <div class="card h-100 shadow-sm">
                 <div class="card-header bg-dark text-white">
@@ -74,7 +69,6 @@
                         {% for finding in scan.recon_findings %}
                             {% set details = finding.get_details_as_dict() %}
 
-                            <!-- WAF Findings -->
                             {% if finding.tool == 'wafw00f' %}
                                 <li class="list-group-item bg-danger-subtle border-start border-danger border-4">
                                     <div class="d-flex w-100 justify-content-between">
@@ -84,9 +78,7 @@
                                     <small class="text-muted">Manufacturer: {{ details.manufacturer }}</small>
                                 </li>
 
-                            <!-- Nmap Open Ports -->
                             {% elif finding.tool == 'nmap' %}
-                                <!-- Kiểm tra port có nằm trong danh sách vulnerable_ports không -->
                                 {% set is_vuln = details.port in vulnerable_ports %}
 
                                 <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
@@ -96,7 +88,6 @@
                                             <strong>Port {{ details.port }}/{{ details.protocol }}</strong>
                                         </span>
 
-                                        <!-- Nếu port có lỗ hổng, hiện Badge cảnh báo -->
                                         {% if is_vuln %}
                                             <span class="badge bg-danger animate-pulse">
                                                 <i class="bi bi-exclamation-triangle-fill me-1"></i>VULN DETECTED
@@ -122,7 +113,6 @@
             </div>
         </div>
 
-        <!-- DNS Records Column -->
         <div class="col-md-6">
             <div class="card h-100 shadow-sm">
                 <div class="card-header bg-dark text-white">
@@ -165,7 +155,6 @@
         </div>
     </div>
 
-    <!-- NMAP VULNERABILITIES (NSE Scripts) -->
     {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
     {% if nmap_vulns %}
     <div class="card border-danger mb-4 shadow">
@@ -186,7 +175,6 @@
                         </h2>
                         <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
                             <div class="accordion-body p-0">
-                                <!-- Terminal-like Output -->
                                 <div class="terminal-window">
                                     <div class="terminal-header">
                                         <span class="dot red"></span>
@@ -206,16 +194,14 @@
     {% endif %}
     {% endif %}
 
-    <!-- CORE VULNERABILITIES SECTION (JavaScript Powered) -->
     <h3 class="mb-3">Application Vulnerabilities</h3>
     <div id="vulnerabilities-accordion" class="accordion shadow-sm">
 
-        <!-- Loading State -->
         <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2 text-body-secondary">Analyzing application security...</p>
+            <p class="mt-2 text-body-secondary">Scanning & Analyzing...</p>
         </div>
 
         <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
@@ -276,12 +262,10 @@
             const severityBadgeClass = getSeverityBadgeClass(vuln.severity);
             const details = vuln.details;
 
-            // --- AI REMEDIATION UI LOGIC ---
             const ai_suggestion = details.ai_suggestion;
-            let aiSuggestionHtml = '';
             let aiTabNav = '';
+            let aiTabContent = '';
 
-            // Nếu có gợi ý từ AI, tạo tab content và tab navigation
             if (ai_suggestion && ai_suggestion.explanation) {
                 aiTabNav = `
                 <li class="nav-item" role="presentation">
@@ -290,7 +274,7 @@
                     </button>
                 </li>`;
 
-                aiSuggestionHtml = `
+                aiTabContent = `
                 <div class="tab-pane fade" id="ai-tab-${vuln.id}" role="tabpanel">
                     <div class="mt-3 p-3 bg-body-tertiary rounded border">
                         <h6 class="fw-bold"><i class="bi bi-robot me-2 text-primary"></i>AI Analysis</h6>
@@ -307,13 +291,10 @@
                     </div>
                 </div>`;
             }
-            // --------------------------------
 
-            // --- STANDARD DETAILS LOGIC ---
             let detailsHtml = '<ul class="list-group list-group-flush">';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
-                    // Không hiển thị 'ai_suggestion' trong danh sách chi tiết thường
                     if (key === 'ai_suggestion') continue;
 
                     const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
@@ -335,7 +316,6 @@
                     </h2>
                     <div id="collapse-${vuln.id}" class="accordion-collapse collapse" aria-labelledby="heading-${vuln.id}" data-bs-parent="#vulnerabilities-accordion">
                         <div class="accordion-body">
-                            <!-- TABS NAVIGATION -->
                             <ul class="nav nav-tabs" role="tablist">
                                 <li class="nav-item" role="presentation">
                                     <button class="nav-link active" id="details-tab-${vuln.id}" data-bs-toggle="tab" data-bs-target="#details-pane-${vuln.id}" type="button" role="tab">Details</button>
@@ -343,7 +323,6 @@
                                 ${aiTabNav}
                             </ul>
 
-                            <!-- TABS CONTENT -->
                             <div class="tab-content pt-2">
                                 <div class="tab-pane fade show active" id="details-pane-${vuln.id}" role="tabpanel">
                                     <p class="mt-2"><strong>Subcategory:</strong> ${vuln.subcategory || 'N/A'}</p>
@@ -351,7 +330,7 @@
                                     <h6>Technical Details:</h6>
                                     ${detailsHtml}
                                 </div>
-                                ${aiSuggestionHtml}
+                                ${aiTabContent}
                             </div>
                         </div>
                     </div>
@@ -404,7 +383,6 @@
             eventSource.close();
         };
 
-        // Initial update
         updateStatusBadge('{{ scan.status }}');
     });
 </script>

@@ -19,9 +19,6 @@ from integrations.ai_remediator import generate_remediation
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
-    """
-    Generates a unique hash for a vulnerability to prevent duplicates.
-    """
     GLOBAL_VULN_TYPES = [
         'Cryptographic Failure',
         'Security Misconfiguration',
@@ -67,12 +64,10 @@ def run_scan_task(scan_id: int):
         seen_vuln_hashes = set()
 
         try:
-            # --- PHASE 1: RECONNAISSANCE ---
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
-            # 1. Run WAFW00F
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
                 finding = ReconFinding(
@@ -84,7 +79,6 @@ def run_scan_task(scan_id: int):
                 db.session.add(finding)
                 db.session.commit()
 
-            # 2. Run DNSRecon
             if domain:
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -98,11 +92,9 @@ def run_scan_task(scan_id: int):
                     db.session.add(finding)
                 db.session.commit()
 
-            # 3. Run Nmap
             if domain:
                 nmap_data = run_nmap(domain)
 
-                # A. Process Open Ports and Audit Services
                 for port_info in nmap_data.get('ports', []):
                     finding = ReconFinding(
                         scan_id=scan.id,
@@ -112,7 +104,6 @@ def run_scan_task(scan_id: int):
                     )
                     db.session.add(finding)
 
-                    # AUDIT: Check service versions
                     product = port_info.get('product')
                     version = port_info.get('version')
 
@@ -160,7 +151,6 @@ def run_scan_task(scan_id: int):
                                 seen_vuln_hashes.add(v_hash)
                                 print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
 
-                # B. Save Nmap Script Vulnerabilities
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     finding = ReconFinding(
                         scan_id=scan.id,
@@ -174,7 +164,6 @@ def run_scan_task(scan_id: int):
 
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
-            # --- PHASE 2: NUCLEI SCANNING ---
             print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             nuclei_results = run_nuclei(scan.target_url)
 
@@ -204,7 +193,6 @@ def run_scan_task(scan_id: int):
 
             db.session.commit()
 
-            # --- PHASE 3: SQLMAP SCANNING ---
             print(f"[Scan ID: {scan_id}] Running sqlmap (Check console for progress)...", flush=True)
             sqlmap_results = run_sqlmap(scan.target_url, scan.auth_cookies)
 
@@ -226,7 +214,6 @@ def run_scan_task(scan_id: int):
 
             db.session.commit()
 
-            # --- PHASE 4: CORE PYTHON SCANNING ---
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
 
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
@@ -238,27 +225,26 @@ def run_scan_task(scan_id: int):
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    # --- AI REMEDIATION INTEGRATION ---
-                    # Check if vulnerability is suitable for AI analysis
-                    if vuln.type in ['SQL Injection', 'Cross-Site Scripting (XSS)', 'Local File Inclusion',
-                                     'Broken Access Control']:
-                        evidence = f"URL: {vuln.url}\n"
-                        if 'parameter' in vuln.details:
-                            evidence += f"Parameter: {vuln.details['parameter']}\n"
-                        if 'payload' in vuln.details:
-                            evidence += f"Payload: {vuln.details['payload']}\n"
+                    AI_TARGETS = ['sql', 'xss', 'injection', 'traversal', 'inclusion', 'rce', 'upload']
+                    vuln_type_lower = vuln.type.lower()
 
-                        # Call AI to generate fix (assuming PHP/General for now)
+                    if any(target in vuln_type_lower for target in AI_TARGETS):
+                        print(f"  [AI] Triggering analysis for: {vuln.type}", flush=True)
+                        evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
+                        if isinstance(vuln.details, dict):
+                            if 'parameter' in vuln.details:
+                                evidence += f"Parameter: {vuln.details['parameter']}\n"
+                            if 'payload' in vuln.details:
+                                evidence += f"Payload: {vuln.details['payload']}\n"
+
                         ai_suggestion = generate_remediation(
                             vulnerability_type=vuln.type,
                             code_snippet=evidence,
                             target_language="php"
                         )
 
-                        # Add AI result to details
                         if ai_suggestion:
                             vuln.details['ai_suggestion'] = ai_suggestion
-                    # ----------------------------------
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
