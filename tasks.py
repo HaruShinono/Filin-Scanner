@@ -25,7 +25,10 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
         'Security Logging and Monitoring Failure',
         'Outdated Service Component',
         'Using Components with Known Vulnerabilities',
-        'Software and Data Integrity Failure'
+        'Software and Data Integrity Failure',
+        'Sensitive Data Exposure',
+        'Cross-Site Request Forgery (CSRF)',
+        'CSRF'
     ]
 
     parsed = urlparse(vuln.url)
@@ -39,7 +42,14 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
         elif 'library' in vuln.details:
             details_str += f"|lib:{vuln.details['library']}"
         elif 'cookie' in vuln.details:
-            details_str += f"|cookie:{vuln.details['cookie'].split('=')[0]}"
+            name = vuln.details['cookie'].split('=')[0] if '=' in vuln.details['cookie'] else vuln.details['cookie']
+            details_str += f"|cookie:{name}"
+        elif 'match' in vuln.details:
+            details_str += f"|match:{vuln.details['match']}"
+        elif 'leak_type' in vuln.details:
+            details_str += f"|leak_type:{vuln.details['leak_type']}"
+        elif 'form_action' in vuln.details:
+            details_str += f"|action:{vuln.details['form_action']}"
 
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
@@ -225,7 +235,7 @@ def run_scan_task(scan_id: int):
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    AI_TARGETS = ['sql', 'xss', 'injection', 'traversal', 'inclusion', 'rce', 'upload']
+                    AI_TARGETS = ['sql', 'xss', 'injection', 'traversal', 'inclusion', 'rce', 'upload', 'broken access']
                     vuln_type_lower = vuln.type.lower()
 
                     if any(target in vuln_type_lower for target in AI_TARGETS):
