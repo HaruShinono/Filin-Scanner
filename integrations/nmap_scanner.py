@@ -18,9 +18,7 @@ def _is_nmap_false_positive(script_id: str, output: str) -> bool:
         "State: Clean",
         "use -d to debug",
         "valid credentials",  # Sometimes brute force scripts print 'No valid credentials found'
-        "files not found",
-        "No reply from server (TIMEOUT)",
-        "Couldn't find a file-type field"
+        "files not found"
     ]
 
     # 2. Scripts that are informational only (Server Headers, Titles, etc.)
@@ -36,7 +34,6 @@ def _is_nmap_false_positive(script_id: str, output: str) -> bool:
     # Check against ignore phrases
     if any(phrase.lower() in output.lower() for phrase in IGNORE_PHRASES):
         return True
-
     # Check against info-only script IDs
     if script_id in INFO_ONLY_SCRIPTS:
         return True
