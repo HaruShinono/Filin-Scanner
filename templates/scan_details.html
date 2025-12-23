@@ -82,25 +82,27 @@
                                 {% set is_vuln = details.port in vulnerable_ports %}
 
                                 <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
-                                    <div class="d-flex w-100 justify-content-between align-items-center">
-                                        <span>
-                                            <i class="bi bi-ethernet text-primary me-2"></i>
-                                            <strong>Port {{ details.port }}/{{ details.protocol }}</strong>
-                                        </span>
+                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                        <div class="d-flex align-items-center">
+                                            <span class="badge bg-dark me-2" style="min-width: 60px;">{{ details.port }}/{{ details.protocol }}</span>
+                                            <span class="fw-bold text-primary">{{ details.service_name | upper }}</span>
+                                        </div>
 
                                         {% if is_vuln %}
                                             <span class="badge bg-danger animate-pulse">
-                                                <i class="bi bi-exclamation-triangle-fill me-1"></i>VULN DETECTED
+                                                <i class="bi bi-exclamation-triangle-fill"></i> VULN
                                             </span>
-                                        {% else %}
-                                            <span class="badge bg-secondary">{{ details.service_name }}</span>
                                         {% endif %}
                                     </div>
-                                    {% if details.product or details.version %}
-                                    <small class="text-muted d-block ms-4">
-                                        {{ details.product }} {{ details.version }}
-                                    </small>
-                                    {% endif %}
+
+                                    <div class="small text-muted ms-1">
+                                        {% if details.display_string and details.display_string != details.service_name %}
+                                            <i class="bi bi-info-circle me-1" style="font-size: 0.8rem;"></i>
+                                            {{ details.display_string }}
+                                        {% else %}
+                                            <span class="fst-italic opacity-50">No version info</span>
+                                        {% endif %}
+                                    </div>
                                 </li>
                             {% endif %}
                         {% endfor %}
@@ -211,6 +213,48 @@
         </div>
     </div>
 
+    <div id="ai-summary-section" class="d-none mb-5 mt-5">
+        <div class="card border-0 shadow-lg" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white;">
+            <div class="card-header bg-transparent border-0 pt-4 px-4">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-robot fs-1 me-3 text-info"></i>
+                    <div>
+                        <h2 class="mb-0 fw-bold">AI Security Consultant</h2>
+                        <p class="text-info-emphasis mb-0">Automated Executive Report & Strategy</p>
+                    </div>
+                    <div class="ms-auto text-end">
+                        <span class="d-block text-uppercase small opacity-75">Overall Risk Score</span>
+                        <span id="ai-risk-score" class="display-4 fw-bold text-danger">--</span><span class="fs-5">/100</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-4">
+
+                <div class="mb-4">
+                    <h5 class="text-uppercase text-secondary small fw-bold ls-1">Executive Summary</h5>
+                    <p id="ai-exec-summary" class="lead" style="font-weight: 300;"></p>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
+                            <h5 class="text-warning mb-3"><i class="bi bi-list-check me-2"></i>Immediate Actions</h5>
+                            <ul id="ai-priorities" class="list-unstyled mb-0">
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
+                            <h5 class="text-success mb-3"><i class="bi bi-shield-check me-2"></i>Strategic Advice</h5>
+                            <p id="ai-strategy" class="small mb-0 opacity-75"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="mb-5"></div>
 </div>
 {% endblock %}
@@ -231,7 +275,6 @@
 
         let vulnerabilityCount = 0;
 
-        // --- HÀM MỚI: Chống vỡ layout do HTML tags ---
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
             return String(text)
@@ -271,15 +314,17 @@
             loadingState.classList.add('d-none');
 
             const severityBadgeClass = getSeverityBadgeClass(vuln.severity);
-            const details = vuln.details;
+
+            let details = vuln.details;
+            if (typeof details === 'string') {
+                try { details = JSON.parse(details); } catch (e) { details = {}; }
+            }
 
             const ai_suggestion = details.ai_suggestion;
             let aiTabNav = '';
             let aiTabContent = '';
 
-            // Xử lý AI Tab (như cũ)
             if (ai_suggestion && ai_suggestion.explanation) {
-                // Escape code trong AI suggestion để an toàn
                 const safeFixedCode = escapeHtml(ai_suggestion.fixed_code);
                 const safeExplanation = escapeHtml(ai_suggestion.explanation);
 
@@ -308,16 +353,12 @@
                 </div>`;
             }
 
-            // Xử lý Details List (SỬA LỖI UI Ở ĐÂY)
             let detailsHtml = '<ul class="list-group list-group-flush">';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
                     if (key === 'ai_suggestion') continue;
 
-                    // Chuyển object thành string
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
-
-                    // QUAN TRỌNG: Escape HTML để tránh vỡ layout
                     displayValue = escapeHtml(displayValue);
 
                     detailsHtml += `<li class="list-group-item"><strong>${key}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
@@ -371,6 +412,25 @@
                 data.new_vulnerabilities.forEach(createVulnerabilityAccordionItem);
             }
 
+            if (data.ai_analysis) {
+                const aiSec = document.getElementById('ai-summary-section');
+                const analysis = data.ai_analysis;
+
+                aiSec.classList.remove('d-none');
+
+                document.getElementById('ai-risk-score').innerText = analysis.risk_score || 'N/A';
+                document.getElementById('ai-exec-summary').innerText = analysis.executive_summary || 'No summary available.';
+                document.getElementById('ai-strategy').innerText = analysis.strategic_recommendations || 'No strategy provided.';
+
+                const priorityList = document.getElementById('ai-priorities');
+                priorityList.innerHTML = '';
+                if (analysis.top_priorities && Array.isArray(analysis.top_priorities)) {
+                    analysis.top_priorities.forEach(item => {
+                        priorityList.innerHTML += `<li class="mb-2"><i class="bi bi-caret-right-fill text-warning me-2"></i>${item}</li>`;
+                    });
+                }
+            }
+
             if (data.status === 'RUNNING') {
                 progressBar.style.width = '50%';
                 progressBar.classList.add('progress-bar-animated');
@@ -405,7 +465,6 @@
             eventSource.close();
         };
 
-        // Initial update
         updateStatusBadge('{{ scan.status }}');
     });
 </script>

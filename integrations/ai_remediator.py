@@ -1,74 +1,90 @@
-# integrations/ai_remediator.py
 import ollama
 import json
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Tên mô hình đã tải về
+# Ensure you have pulled this model via: ollama pull codellama:7b
 MODEL_NAME = 'codellama:7b'
 
 
 def generate_remediation(vulnerability_type: str, code_snippet: str, target_language: str = "php") -> dict:
     """
-    Sử dụng Local LLM (Ollama) để tạo hướng dẫn sửa lỗi.
-
-    Args:
-        vulnerability_type (str): Loại lỗ hổng (ví dụ: 'SQL Injection', 'XSS').
-        code_snippet (str): Đoạn code hoặc HTTP request/response liên quan.
-        target_language (str): Ngôn ngữ lập trình của mục tiêu (ví dụ: 'php', 'nodejs', 'java').
-
-    Returns:
-        dict: Chứa 'explanation' và 'fixed_code'.
+    Generates a specific code fix and explanation for a single vulnerability.
     """
     if not code_snippet:
         return {}
 
-    # Prompt for Ollama:
+    # Prompt engineering to enforce JSON output
     prompt = f"""
-    You are a senior security engineer providing a code fix for a vulnerability.
-    Your task is to analyze the vulnerability and provide a clear, concise, and secure code remediation.
+    You are a senior security engineer. Analyze this vulnerability and provide a secure code fix.
 
-    **Vulnerability Type:** {vulnerability_type}
-    **Target Language:** {target_language}
-
-    **Vulnerable Code Snippet / Evidence:**
+    **Vulnerability:** {vulnerability_type}
+    **Language:** {target_language}
+    **Context:**
     ```
     {code_snippet}
     ```
 
-    **Your Response MUST be in JSON format with two keys:**
-    1.  `explanation`: A brief explanation (in English) of WHY the code is vulnerable and HOW the fix works.
-    2.  `fixed_code`: The corrected, secure code snippet.
-
-    **Example JSON Response:**
+    **Response Format (JSON only):**
     {{
-        "explanation": "The original code was vulnerable to SQL Injection because it directly concatenated user input into the SQL query. The fix uses parameterized queries (prepared statements) to separate the query logic from the user data, preventing injection.",
-        "fixed_code": "..."
+        "explanation": "Brief explanation of the flaw and the fix.",
+        "fixed_code": "The corrected code snippet."
     }}
-
-    **Provide the JSON response now:**
     """
 
     try:
-        print(f"  [AI Remediator] Generating fix for {vulnerability_type} in {target_language}...")
+        print(f"  [AI] Generating fix for {vulnerability_type}...", flush=True)
 
-        # Gọi API của Ollama
         response = ollama.chat(
             model=MODEL_NAME,
             messages=[{'role': 'user', 'content': prompt}],
-            format='json'  # Yêu cầu Ollama trả về JSON
+            format='json'  # Force JSON mode
         )
 
-        # Ollama trả về một dictionary, chúng ta lấy nội dung
         content = response['message']['content']
-
-        # Parse chuỗi JSON trả về
-        remediation_data = json.loads(content)
-
-        print(f"  [AI Remediator] Fix generated successfully.")
-        return remediation_data
+        return json.loads(content)
 
     except Exception as e:
-        logger.error(f"Error communicating with Ollama: {e}")
-        return {"error": str(e)}
+        logger.error(f"Ollama error (remediation): {e}")
+        return {}
+
+
+def generate_overall_analysis(target_url: str, vuln_summary: list) -> dict:
+    """
+    Generates a high-level executive summary based on all found vulnerabilities.
+    """
+    if not vuln_summary:
+        return {}
+
+    # Format vulnerability list for the prompt
+    vuln_text = "\n".join([f"- {v['type']} ({v['severity']})" for v in vuln_summary])
+
+    prompt = f"""
+    You are a CISO. Analyze the security posture of {target_url} based on these findings:
+
+    {vuln_text}
+
+    **Response Format (JSON only):**
+    {{
+        "risk_score": "Integer 0-100 (100 is critical risk)",
+        "executive_summary": "2-3 sentences summarizing the overall security status.",
+        "top_priorities": ["Action 1", "Action 2", "Action 3"],
+        "strategic_recommendations": "Long-term security advice."
+    }}
+    """
+
+    try:
+        print(f"  [AI] Generating Executive Summary...", flush=True)
+
+        response = ollama.chat(
+            model=MODEL_NAME,
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json'
+        )
+
+        return json.loads(response['message']['content'])
+
+    except Exception as e:
+        logger.error(f"Ollama error (summary): {e}")
+        return {}

@@ -19,6 +19,7 @@ class Scan(db.Model):
     status = db.Column(db.String(50), default='PENDING', nullable=False)
     start_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     end_time = db.Column(db.DateTime, nullable=True)
+    ai_analysis = db.Column(db.Text, nullable=True)
     auth_cookies = db.Column(db.Text, nullable=True)
     vulnerabilities = db.relationship(
         'Vulnerability',
@@ -44,7 +45,8 @@ class Scan(db.Model):
             'status': self.status,
             'start_time': self.start_time.isoformat(),
             'end_time': self.end_time.isoformat() if self.end_time else None,
-            'vulnerability_count': len(self.vulnerabilities)
+            'vulnerability_count': len(self.vulnerabilities),
+            'ai_analysis': json.loads(self.ai_analysis) if self.ai_analysis else None
         }
 
 class Vulnerability(db.Model):
