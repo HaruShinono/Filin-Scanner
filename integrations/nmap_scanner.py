@@ -13,7 +13,8 @@ def _is_nmap_false_positive(script_id: str, output: str) -> bool:
         "State: Clean",
         "use -d to debug",
         "valid credentials",
-        "files not found"
+        "files not found",
+        "Couldn't find a file-type field."
     ]
 
     INFO_ONLY_SCRIPTS = [

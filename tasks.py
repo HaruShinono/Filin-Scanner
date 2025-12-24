@@ -19,9 +19,6 @@ from integrations.ai_remediator import generate_remediation, generate_overall_an
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
-    """
-    Generates a unique hash for a vulnerability to prevent duplicates.
-    """
     GLOBAL_VULN_TYPES = [
         'Cryptographic Failure',
         'Security Misconfiguration',
@@ -248,27 +245,29 @@ def run_scan_task(scan_id: int):
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    # --- INDIVIDUAL AI REMEDIATION ---
-                    AI_TARGETS = ['sql', 'xss', 'injection', 'traversal', 'inclusion', 'rce', 'upload', 'broken access']
-                    vuln_type_lower = vuln.type.lower()
+                    # --- INDIVIDUAL AI REMEDIATION (UPDATED) ---
+                    # 1. Bỏ bộ lọc AI_TARGETS -> Cho phép mọi lỗ hổng chạy AI
+                    print(f"  [AI] Triggering individual fix for: {vuln.type}", flush=True)
+                    evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
+                    if isinstance(vuln.details, dict):
+                        if 'parameter' in vuln.details:
+                            evidence += f"Parameter: {vuln.details['parameter']}\n"
+                        if 'payload' in vuln.details:
+                            evidence += f"Payload: {vuln.details['payload']}\n"
+                        if 'issue' in vuln.details:
+                            evidence += f"Issue Details: {vuln.details['issue']}\n"
+                        # Thêm một chút chi tiết thô để AI hiểu rõ hơn
+                        evidence += f"Full Details Snippet: {str(vuln.details)[:300]}"
 
-                    if any(target in vuln_type_lower for target in AI_TARGETS):
-                        print(f"  [AI] Triggering analysis for: {vuln.type}", flush=True)
-                        evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
-                        if isinstance(vuln.details, dict):
-                            if 'parameter' in vuln.details:
-                                evidence += f"Parameter: {vuln.details['parameter']}\n"
-                            if 'payload' in vuln.details:
-                                evidence += f"Payload: {vuln.details['payload']}\n"
+                    ai_suggestion = generate_remediation(
+                        vulnerability_type=vuln.type,
+                        code_snippet=evidence,
+                        target_language="php"  # Bạn có thể thêm logic detect language từ Nmap/Wappalyzer sau này
+                    )
 
-                        ai_suggestion = generate_remediation(
-                            vulnerability_type=vuln.type,
-                            code_snippet=evidence,
-                            target_language="php"
-                        )
-
-                        if ai_suggestion:
-                            vuln.details['ai_suggestion'] = ai_suggestion
+                    if ai_suggestion:
+                        vuln.details['ai_suggestion'] = ai_suggestion
+                    # ---------------------------------------------
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
@@ -289,16 +288,40 @@ def run_scan_task(scan_id: int):
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
-            # --- PHASE 5: AI EXECUTIVE SUMMARY ---
+            # --- PHASE 5: AI EXECUTIVE SUMMARY (UPDATED) ---
             # Refresh scan object to get all new vulnerabilities
             scan = db.session.get(Scan, scan_id)
-            if scan and scan.vulnerabilities:
+            has_recon = bool(scan.recon_findings)
+            has_vuln = bool(scan.vulnerabilities)
+
+            if has_recon or has_vuln:
                 print(f"[Scan ID: {scan_id}] Generating AI Executive Summary...", flush=True)
 
                 vuln_summary = []
+
+                # + Application Vulners
                 for v in scan.vulnerabilities:
                     vuln_summary.append({'type': v.type, 'severity': v.severity})
 
+                # + Recon Findings -> Summary
+                if has_recon:
+                    for rf in scan.recon_findings:
+                        # WAF
+                        if rf.tool == 'wafw00f':
+                            details = rf.get_details_as_dict()
+                            vuln_summary.append(
+                                {'type': f"WAF Detected: {details.get('firewall', 'Unknown')}", 'severity': 'Info'})
+                        # Nmap Vulnerabilities (Critical)
+                        elif rf.tool == 'nmap-vuln':
+                            vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
+                        # Open Ports (Infrastructure)
+                        elif rf.tool == 'nmap':
+                            details = rf.get_details_as_dict()
+                            vuln_summary.append(
+                                {'type': f"Open Port: {details.get('port')}/{details.get('service_name')}",
+                                 'severity': 'Info'})
+
+                # Gọi AI Summary với danh sách tổng hợp
                 analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
 
                 if analysis_result:

@@ -9,9 +9,7 @@ MODEL_NAME = 'codellama:7b'
 
 
 def generate_remediation(vulnerability_type: str, code_snippet: str, target_language: str = "php") -> dict:
-    """
-    Generates a specific code fix and explanation for a single vulnerability.
-    """
+    """Prompt gens a specific code fix"""
     if not code_snippet:
         return {}
 
@@ -51,9 +49,7 @@ def generate_remediation(vulnerability_type: str, code_snippet: str, target_lang
 
 
 def generate_overall_analysis(target_url: str, vuln_summary: list) -> dict:
-    """
-    Generates a high-level executive summary based on all found vulnerabilities.
-    """
+    """Prompt to gen a high-level executive summary based on all found vuls"""
     if not vuln_summary:
         return {}
 
