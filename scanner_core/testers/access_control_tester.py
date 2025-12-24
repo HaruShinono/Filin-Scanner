@@ -10,12 +10,15 @@ class AccessControlTester(BaseTester):
     def __init__(self, session: requests.Session, config: dict):
         super().__init__(session, config)
         self.paths_to_test = self.config.get('paths', [])
+
+        # OWASP Risk Rating Logic (Impact x Likelihood)
         self.SEVERITY_MAP = {
             'Privilege Escalation': 'Critical',
             'Admin/Privileged Endpoint Exposure': 'Critical',
+            'Path Traversal': 'Critical',
             'Potential IDOR': 'High',
             'Unauthenticated Access': 'High',
-            'Sensitive File Exposure': 'High',
+            'Sensitive File/Directory Exposure': 'High',
             'Method-Based Access Control Bypass': 'High',
             'Forced Browsing': 'Medium',
             'Directory Listing Enabled': 'Medium'
@@ -28,12 +31,12 @@ class AccessControlTester(BaseTester):
             'forgot password', 'csrf-token'
         ]
 
-        # Extensions for Forced Browsing Confidence Logic
+        # Extensions for Forced Browsing Logic
         self.HIGH_RISK_EXTS = ['.php', '.jsp', '.asp', '.aspx', '.xml', '.conf', '.json', '.env', '.sql']
-        self.LOW_RISK_EXTS = ['.txt', '.md', '.css', '.js', '.png', '.jpg', '.html', '.ico']
+        self.LOW_RISK_EXTS = ['.txt', '.md', '.css', '.js', '.png', '.jpg', '.html', '.svg']
 
     def _is_directory_listing(self, body: str) -> bool:
-        """Detects directory listing based on content."""
+        """Detects directory listing based on content signatures."""
         body_lower = body.lower()
         indicators = [
             'index of /',
@@ -45,9 +48,11 @@ class AccessControlTester(BaseTester):
         return any(ind in body_lower for ind in indicators)
 
     def _is_auth_challenge(self, resp: requests.Response) -> bool:
-        """Determines if the response is actually an authentication challenge."""
-        # 1. Check Headers (Standard)
-        # Note: requests headers are case-insensitive
+        """
+        Determines if the response is actually an authentication challenge
+        (Login page, 401, redirect to login) rather than broken access control.
+        """
+        # 1. Check Headers
         if resp.status_code == 401 or 'www-authenticate' in resp.headers:
             return True
 
@@ -57,6 +62,7 @@ class AccessControlTester(BaseTester):
                 return True
 
         # 3. Check Body Content (Heuristic)
+        # If the body is small and contains login keywords, it's likely a login form
         body_lower = resp.text.lower()
         if len(resp.text) < 2000 and any(k in body_lower for k in self.LOGIN_INDICATORS):
             return True
@@ -64,26 +70,29 @@ class AccessControlTester(BaseTester):
         return False
 
     def _determine_subcategory(self, path: str, resp: requests.Response, method_bypass: bool = False) -> str:
+        """Maps findings to OWASP A01 Subcategories."""
         path_lower = path.lower()
 
         if method_bypass:
             return "Method-Based Access Control Bypass"
 
+        if any(p in path_lower for p in ['/../../', '/../', '/etc/passwd', 'c:\\windows']):
+            return "Path Traversal"
+
         if self._is_directory_listing(resp.text):
             return "Directory Listing Enabled"
 
-        # OWASP includes vertical escalation here
         if any(k in path_lower for k in ['admin', 'manager', 'config', 'dashboard', 'internal', 'root']):
             return "Privilege Escalation"
 
         if any(path_lower.endswith(ext) for ext in ['.git', '.env', '.bak', '.zip', '.sql', '.log', '.config']):
-            return "Sensitive File Exposure"
+            return "Sensitive File/Directory Exposure"
 
         # Heuristic: URL contains indicators of direct object access
         if any(token in path_lower for token in ['id=', 'user_id=', '/user/', '/account/', '/order/', '/basket/']):
             return "Potential IDOR"
 
-        # Forced Browsing (Hidden resources accessed directly)
+        # Smarter Forced Browsing Detection
         if '.' in path.split('/')[-1]:
             return "Forced Browsing"
 
@@ -93,25 +102,25 @@ class AccessControlTester(BaseTester):
         """Calculates confidence score based on multiple heuristics."""
         confidence = 0.0
 
-        # Strong signal: 200 OK means request succeeded
+        # Status Code Signals
         if resp.status_code == 200:
             confidence += 0.4
-        elif resp.status_code == 206:  # Partial content
+        elif resp.status_code == 206:
             confidence += 0.3
 
-        # Strong signal: Not a login page
+        # Not an Auth Challenge
         if not is_auth:
             confidence += 0.3
 
-        # Content heuristic: Too short usually means empty or blocked by WAF/Filter
+        # Content Length Heuristic
         if len(resp.text) > 500:
             confidence += 0.2
 
-        # Category specific boosts
-        if category in ["Privilege Escalation", "Potential IDOR"]:
+        # Category Boosts
+        if category in ["Privilege Escalation", "Potential IDOR", "Path Traversal"]:
             confidence += 0.1
 
-        # Adjust confidence for Forced Browsing extensions
+        # Extension adjustments for Forced Browsing
         if category == "Forced Browsing":
             path_lower = path.lower()
             if any(path_lower.endswith(ext) for ext in self.HIGH_RISK_EXTS):
@@ -119,7 +128,7 @@ class AccessControlTester(BaseTester):
             elif any(path_lower.endswith(ext) for ext in self.LOW_RISK_EXTS):
                 confidence -= 0.3
 
-        return min(confidence, 1.0)  # Cap at 1.0
+        return min(confidence, 1.0)
 
     def test(self, url: str) -> List[Vulnerability]:
         vulns = []
@@ -133,68 +142,61 @@ class AccessControlTester(BaseTester):
             test_url = urljoin(base, path)
 
             try:
-                # Use self.fetch from BaseTester (assuming it wraps session.get/request)
+                # Use allow_redirects=True to detect login redirects properly
                 resp = self.fetch(test_url, allow_redirects=True)
                 if not resp:
                     continue
 
-                # --- 1. Status Code Handling ---
-                # Explicit denial or server error -> Skip. Focus on 200/206
+                # --- 1. Status Code Filtering ---
+                # Explicit denial or server error -> Skip
                 if resp.status_code in [401, 403] or resp.status_code >= 500:
                     continue
 
-                # --- 2. Response Length Heuristic ---
+                # --- 2. Response Length Filter ---
+                # Too small usually means empty/blocked
                 if len(resp.text) < 50:
                     continue
 
-                # --- 3. Login Detection (Auth Challenge) ---
+                # --- 3. Auth Challenge Check ---
                 is_auth_challenge = self._is_auth_challenge(resp)
 
-                # --- 4. Method-Based Access Control Bypass Check ---
+                # --- 4. Method-Based Bypass Check ---
+                # Only check if it looks sensitive and GET works
                 method_bypass_detected = False
                 sensitive_keywords = ['admin', 'config', 'api', 'internal', 'dashboard']
 
-                # Only check method bypass if endpoint looks sensitive AND accessible via GET
                 if (resp.status_code == 200
                         and not is_auth_challenge
                         and any(k in path.lower() for k in sensitive_keywords)):
                     try:
-                        # Attempt POST request to see if it's blocked
-                        post_resp = self.session.post(test_url, data={}, timeout=5, allow_redirects=False)
-                        # Strong signal: POST explicitly forbidden while GET allowed
+                        # Assuming self.session is available via BaseTester
+                        post_resp = self.session.post(test_url, data={}, timeout=5)
                         if post_resp.status_code == 403:
                             method_bypass_detected = True
-                    except Exception:
+                    except:
                         pass
 
-                # --- 5. Determine Subcategory ---
+                # --- 5. Determine Vulnerability Details ---
                 subcategory = self._determine_subcategory(path, resp, method_bypass_detected)
-
-                # --- 6. Calculate Confidence ---
                 confidence_score = self._calculate_confidence(resp, is_auth_challenge, subcategory, path)
 
-                # Thresholding
+                # --- 6. Confidence Thresholding ---
                 confidence_level = 'Low'
                 if confidence_score >= 0.8:
                     confidence_level = 'High'
                 elif confidence_score >= 0.5:
                     confidence_level = 'Medium'
                 else:
-                    # Skip low confidence noise
-                    continue
+                    continue  # Skip low confidence findings
 
-                # --- 7. Determine Severity ---
                 severity = self.SEVERITY_MAP.get(subcategory, 'Medium')
 
-                # Description construction
-                desc = (
-                    f"Accessible endpoint detected ({subcategory}). "
-                    f"Status: {resp.status_code}, Length: {len(resp.text)}. "
-                )
+                # Refine description based on subcategory
+                desc = f"Accessible endpoint detected ({subcategory}). Status: {resp.status_code}."
                 if subcategory == "Potential IDOR":
-                    desc += "Contains object identifiers in URL. Verify if user authorization is checked."
-                elif is_auth_challenge:
-                    desc += " Note: Page contains login indicators but returned 200 OK."
+                    desc += " Contains object identifiers in URL. Verify if user authorization is checked."
+                elif subcategory == "Method-Based Access Control Bypass":
+                    desc += " Resource accessible via GET but blocked via POST."
 
                 vulns.append(Vulnerability(
                     type='Broken Access Control',
@@ -202,10 +204,9 @@ class AccessControlTester(BaseTester):
                     url=test_url,
                     details={
                         'status_code': resp.status_code,
-                        'confidence_score': round(confidence_score, 2),
+                        'confidence_score': f"{confidence_score:.2f}",
                         'confidence_level': confidence_level,
-                        'evidence': resp.text[:200],  # First 200 chars as evidence
-                        'is_auth_challenge': is_auth_challenge
+                        'evidence': desc
                     },
                     severity=severity
                 ))
