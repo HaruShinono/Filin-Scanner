@@ -4,7 +4,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Ensure you have pulled this model via: ollama pull codellama:7b
+# The model used for summary and redemiation
+# ollama pull codellama:7b
 MODEL_NAME = 'codellama:7b'
 
 

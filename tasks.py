@@ -245,8 +245,8 @@ def run_scan_task(scan_id: int):
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    # --- INDIVIDUAL AI REMEDIATION (UPDATED) ---
-                    # 1. Bỏ bộ lọc AI_TARGETS -> Cho phép mọi lỗ hổng chạy AI
+                    # INDIVIDUAL AI REMEDIATION
+                    # AI filter (All vulners all allow for AI to give remediation)
                     print(f"  [AI] Triggering individual fix for: {vuln.type}", flush=True)
                     evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
                     if isinstance(vuln.details, dict):
@@ -256,18 +256,16 @@ def run_scan_task(scan_id: int):
                             evidence += f"Payload: {vuln.details['payload']}\n"
                         if 'issue' in vuln.details:
                             evidence += f"Issue Details: {vuln.details['issue']}\n"
-                        # Thêm một chút chi tiết thô để AI hiểu rõ hơn
                         evidence += f"Full Details Snippet: {str(vuln.details)[:300]}"
 
                     ai_suggestion = generate_remediation(
                         vulnerability_type=vuln.type,
                         code_snippet=evidence,
-                        target_language="php"  # Bạn có thể thêm logic detect language từ Nmap/Wappalyzer sau này
+                        target_language="php"
                     )
 
                     if ai_suggestion:
                         vuln.details['ai_suggestion'] = ai_suggestion
-                    # ---------------------------------------------
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
@@ -288,7 +286,7 @@ def run_scan_task(scan_id: int):
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
-            # --- PHASE 5: AI EXECUTIVE SUMMARY (UPDATED) ---
+            # --- PHASE 5: AI EXECUTIVE SUMMARY ---
             # Refresh scan object to get all new vulnerabilities
             scan = db.session.get(Scan, scan_id)
             has_recon = bool(scan.recon_findings)
@@ -321,7 +319,7 @@ def run_scan_task(scan_id: int):
                                 {'type': f"Open Port: {details.get('port')}/{details.get('service_name')}",
                                  'severity': 'Info'})
 
-                # Gọi AI Summary với danh sách tổng hợp
+                # Recall AI summary
                 analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
 
                 if analysis_result:
