@@ -19,14 +19,11 @@ def create_app():
 
     # 3. Liên kết các đối tượng mở rộng với app
     db.init_app(app)
-
     # 4. Import và đăng ký các route (Blueprint là cách tốt hơn, nhưng import trực tiếp vẫn được)
     with app.app_context():
         # Import các route ở đây để tránh circular import
-        from routes import main_routes # Chúng ta sẽ tạo file routes.py ở bước sau
+        from routes import main_routes
         app.register_blueprint(main_routes)
-
         # Tạo database nếu chưa có
         db.create_all()
-
     return app
