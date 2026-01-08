@@ -1,7 +1,10 @@
 # Filin Web Vulnerability Scanner
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/HaruShinono/Filin-Web-Vulnerability-Scanner/main/static/img/logo.png" alt="Filin Logo" width="150">
+       .___,   
+    ___('v')___
+    `"-\._./-"'
+        ^ ^  
 </p>
 
 <p align="center">
