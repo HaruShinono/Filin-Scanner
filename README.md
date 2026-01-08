@@ -1,101 +1,127 @@
-# Web Vulnerability Scanner
-A high‑performance offensive security toolkit designed for automated
-discovery of web vulnerabilities. Built for security researchers,
-penetration testers, and red-team operators who require real‑time
-insights, modular exploit logic, and a clean local UI for managing
-reconnaissance operations.
+# Filin Web Vulnerability Scanner
 
-## 🔥 Core Capabilities
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HaruShinono/Filin-Web-Vulnerability-Scanner/main/static/img/logo.png" alt="Filin Logo" width="150">
+</p>
 
--   **Local Web Interface (127.0.0.1:5000):** Operate like a lightweight
-    Nessus --- manage scans, review findings, and control tasks from a
-    browser-based dashboard.
--   **Async Scan Engine:** Heavy scans execute in background workers,
-    ensuring the UI remains responsive even under aggressive load.
--   **Live Intelligence Feed:** Vulnerability findings stream to the
-    dashboard in real time --- no manual refresh, no delays.
--   **Modular Exploit Framework:** Add new vulnerability modules,
-    payloads, or exploit logic with minimal boilerplate.
--   **Central Payload Registry:** All attack payloads, signatures, and
-    behavioral configs stored in a unified YAML file.
--   **Persistent Scan Database:** SQLite backend preserves scan history,
-    timeline logs, and full vulnerability reports for later analysis.
+<p align="center">
+  <em>An advanced, modular, and AI-powered web vulnerability scanner with a user-friendly local web interface.</em>
+</p>
 
-## 🛠 Installation
+<p align="center">
+    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge" alt="License"></a>
+    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner"><img src="https://img.shields.io/github/stars/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge&logo=github" alt="Stars"></a>
+    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner/issues"><img src="https://img.shields.io/github/issues/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge&logo=github" alt="Issues"></a>
+</p>
 
-``` bash
-git clone https://github.com/HaruShinono/Simple-Web-Vulnerability-Scanner.git
-cd Simple-Web-Vulnerability-Scanner
+Filin is a comprehensive security tool designed to automate the process of web vulnerability scanning. It combines a powerful Python backend, integrations with industry-standard security tools, and an intuitive web UI to provide a seamless and effective security assessment experience.
+
+## Key Features
+
+-   **Modular Architecture:** Easily extendable with custom Python modules for specific vulnerability checks.
+-   **Local Web Interface:** Manage scans and view results through a clean, real-time web dashboard running on `http://127.0.0.1:5000`.
+-   **Advanced Integrations:** Leverages the power of external tools like **Nmap**, **SQLMap**, and **Nuclei** for deep infrastructure and vulnerability analysis.
+-   **AI-Powered Remediation:** Utilizes a local LLM (Ollama) to provide AI-generated explanations and code fixes for discovered vulnerabilities.
+-   **Authenticated Scanning:** Supports cookie-based authentication to scan protected areas of web applications.
+-   **Professional Reporting:** Generate detailed scan reports in PDF format for documentation and distribution.
+-   **Smart Analysis:** Implements verification and deduplication logic to reduce false positives and eliminate redundant findings.
+
+## Installation
+
+Filin is designed to run on Linux-based systems (Kali Linux is recommended).
+
+### 1. Prerequisites (External Tools)
+
+Before installing the application, ensure you have the following tools installed and available in your system's PATH.
+
+```bash
+# Update package list
+sudo apt update
+
+# Install Nmap, Nuclei, SQLMap, and DNSRecon
+sudo apt install nmap nuclei sqlmap dnsrecon -y
+
+# Install WeasyPrint dependencies for PDF reporting
+sudo apt install python3-pip python3-cffi python3-brotli libpango-1.0-0 libpangoft2-1.0-0 -y
 ```
 
-### Virtual Environment (Recommended)
+### 2. Local Language Model (Ollama)
 
-``` bash
+Filin uses a local AI model for remediation advice.
+
+```bash
+# 1. Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Pull the CodeLlama model (this will download several GB)
+ollama pull codellama:7b
+
+# 3. (Optional) Start the Ollama server if it's not running
+ollama serve
+```
+
+### 3. Application Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner.git
+cd Filin-Web-Vulnerability-Scanner
+
+# 2. Create and activate a Python virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
+source venv/bin/activate
 
-### Dependency Installation
-
-``` bash
+# 3. Install required Python packages
 pip install -r requirements.txt
 ```
 
-## 🚀 Usage Workflow
+## Usage
 
-### 1. Launch the System
+1.  **Start the Web Server:**
+    
+    Make sure your virtual environment is activated, then run:
+    ```bash
+    python -m flask run
+    ```
 
-``` bash
-python -m flask run #./venv/bin/python -m flask run
+2.  **Access the Dashboard:**
+    
+    Open your web browser and navigate to **[http://127.0.0.1:5000](http://127.0.0.1:5000)**.
+
+3.  **Run a Scan:**
+    
+    -   Enter the target URL into the "New Scan" form.
+    -   (Optional) If you need to perform an authenticated scan, paste the target application's session cookies into the "Authentication Cookies" field.
+    -   Click "Start Scan". You will be redirected to a real-time results page.
+
+## Project Structure
+
+```
+Filin-Web-Vulnerability-Scanner/
+├── app.py                  # Main Flask application entry point
+├── factory.py              # Application factory for creating Flask app
+├── routes.py               # Defines all web routes and API endpoints
+├── tasks.py                # Background worker logic for running scans
+├── models.py               # SQLAlchemy database models
+├── config/                 # Configuration files (payloads, settings)
+├── integrations/           # Modules for integrating external tools (Nmap, Nuclei, etc.)
+├── scanner_core/           # Core Python-based scanning engine and testers
+├── static/                 # CSS, JavaScript, and image assets
+├── templates/              # HTML templates for the web interface
+├── requirements.txt        # Python package dependencies
+└── README.md
 ```
 
-(or `python app.py` depending on configuration)
+## Contributing
 
-### 2. Access the Web Console
+Contributions are welcome! Please feel free to open an issue or submit a pull request.
 
-Open: **http://127.0.0.1:5000**
+1.  Fork the repository.
+2.  Create a new branch (`git checkout -b feature/your-feature`).
+3.  Commit your changes (`git commit -m 'Add some feature'`).
+4.  Push to the branch (`git push origin feature/your-feature`).
+5.  Open a Pull Request.
 
-### 3. Initiate an Offensive Scan
+## License
 
--   Enter the target URL\
--   Trigger **Start Scan**\
--   Monitor the live output stream and analyze discovered vectors
-
-## 🧩 Extending the Framework
-
--   Create a new module in `/modules/`\
--   Implement `run(target)` with detection or exploit logic\
--   Register payloads/signatures in `payloads.yaml`\
--   The engine auto-loads modules on startup
-
-## 📌 Notes for Security Researchers
-
--   Designed for controlled security assessments\
--   Do **NOT** use on systems without authorization\
--   Ideal for lab environments, CTF automation, recon pipelines, and
-    teaching offensive security methodologies
-
-## 📄 License
-
-MIT License
-
-Copyright (c) 2025 Haru Shinono
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
