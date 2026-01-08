@@ -1,11 +1,13 @@
 # Filin Web Vulnerability Scanner
 
 <p align="center">
+<pre>
        .___,   
     ___('v')___
     `"-\._./-"'
         ^ ^  
-</p>
+</pre>
+</p
 
 <p align="center">
   <em>An advanced, modular, and AI-powered web vulnerability scanner with a user-friendly local web interface.</em>
