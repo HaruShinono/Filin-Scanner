@@ -72,8 +72,8 @@ ollama serve
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner.git
-cd Filin-Web-Vulnerability-Scanner
+git clone https://github.com/HaruShinono/Filin-Scanner.git
+cd Filin-Scanner
 
 # 2. Create and activate a Python virtual environment
 python3 -m venv venv
