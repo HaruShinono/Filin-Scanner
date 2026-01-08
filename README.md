@@ -1,8 +1,6 @@
 # Filin Web Vulnerability Scanner
 
-<p>
-<pre>
-
+```text
  ,     ,    _______  ___   ___      ___   __    _                       
  )\___/(    |       ||   | |   |    |   | |  |  | |             
 {(@)v(@)}   |    ___||   | |   |    |   | |   |_| |          .___, 
@@ -10,7 +8,8 @@
  {/^^^\}    |    ___||   | |   |___ |   | |  _    |       `"-\._./-"'
   `m-m`     |   |    |   | |       ||   | | | |   |           ^ ^
             |___|    |___| |_______||___| |_|  |__|
-</p>
+```
+
 
 <p align="center">
   <em>An advanced, modular, and AI-powered web vulnerability scanner with a user-friendly local web interface.</em>
