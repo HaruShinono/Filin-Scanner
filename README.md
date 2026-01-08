@@ -1,4 +1,4 @@
-# Filin Web Vulnerability Scanner
+# Filin: Web Vulnerability Scanner
 
 <div>
 <pre>
