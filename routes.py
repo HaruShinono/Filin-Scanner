@@ -83,10 +83,8 @@ def export_pdf(scan_id):
         vuln.kb_info = kb_info
         enriched_vulns.append(vuln)
 
-    # 3. Tính toán thống kê
     severity_counts = Counter(v.severity for v in enriched_vulns)
 
-    # Render HTML từ template báo cáo mới
     html_string = render_template(
         'report_pdf.html',
         scan=scan,
@@ -94,10 +92,7 @@ def export_pdf(scan_id):
         severity_counts=severity_counts
     )
 
-    # Tạo PDF từ HTML string
     pdf = HTML(string=html_string).write_pdf()
-
-    # Trả về file PDF để download
     return Response(
         pdf,
         mimetype='application/pdf',
