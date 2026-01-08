@@ -2,10 +2,12 @@
 
 <p align="center">
 <pre>
+<center>
        .___,   
     ___('v')___
     `"-\._./-"'
         ^ ^  
+</center>
 </pre>
 </p
 
