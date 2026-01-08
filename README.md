@@ -2,9 +2,7 @@
 
 <div align="center">
 
-<div align="center">
-
-<pre>
+<pre style="font-size: 12px; line-height: 1.1;">
  ,     ,    _______  ___   ___      ___   __    _                       
  )\___/(    |       ||   | |   |    |   | |  |  | |             
 {(@)v(@)}   |    ___||   | |   |    |   | |   |_| |          .___, 
@@ -15,8 +13,6 @@
 </pre>
 
 </div>
-
-
 
 <p align="center">
   <em>An advanced, modular, and AI-powered web vulnerability scanner with a user-friendly local web interface.</em>
