@@ -2,16 +2,14 @@
 
 <p align="center">
 <pre>
-<center>
             ,     ,
             )\___/(
            {(@)v(@)}
             {|~~~|}
             {/^^^\}
-             `m-m`  
-</center>
+             `m-m`
 </pre>
-</p
+</p>
 
 <p align="center">
   <em>An advanced, modular, and AI-powered web vulnerability scanner with a user-friendly local web interface.</em>
