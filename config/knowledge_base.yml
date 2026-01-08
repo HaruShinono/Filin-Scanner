@@ -1,0 +1,61 @@
+# config/knowledge_base.yml
+
+# --- OWASP A01:2021 - Broken Access Control ---
+"Broken Access Control":
+  title: "Broken Access Control"
+  description: "This vulnerability occurs when restrictions on what authenticated users are allowed to do are not properly enforced. Attackers can exploit these flaws to access other users' accounts, view sensitive files, or modify other users' data."
+  impact: "Unauthorized access to data or functionality, potential for data modification or destruction, and privilege escalation."
+  owasp: "A01:2021 - Broken Access Control"
+  cwe: "CWE-284: Improper Access Control"
+
+# --- OWASP A02:2021 - Cryptographic Failures ---
+"Cryptographic Failure":
+  title: "Cryptographic Failures (Sensitive Data Exposure)"
+  description: "Occurs when sensitive data is not properly protected in transit or at rest. This can include missing encryption (HTTP), weak algorithms, or insecure handling of cookies and tokens."
+  impact: "Exposure of sensitive information such as passwords, session tokens, or personal data, leading to identity theft or account takeover."
+  owasp: "A02:2021 - Cryptographic Failures"
+  cwe: "CWE-311: Missing Encryption of Sensitive Data"
+
+# --- OWASP A03:2021 - Injection ---
+"SQL Injection":
+  title: "SQL Injection"
+  description: "A flaw that allows an attacker to interfere with the queries that an application makes to its database. It generally allows an attacker to view data that they are not normally able to retrieve."
+  impact: "Complete database compromise, allowing attackers to read, modify, or delete all data. Can lead to remote code execution on the database server."
+  owasp: "A03:2021 - Injection"
+  cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+"Cross-Site Scripting (XSS)":
+  title: "Cross-Site Scripting (XSS)"
+  description: "XSS flaws occur whenever an application includes untrusted data in a new web page without proper validation or escaping. XSS allows attackers to execute scripts in the victim's browser which can hijack user sessions, deface web sites, or redirect the user to malicious sites."
+  impact: "Hijacking user sessions, stealing sensitive data from the user's browser, defacing the website, and redirecting users to malicious sites."
+  owasp: "A03:2021 - Injection"
+  cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+"DOM-based XSS":
+  title: "DOM-based Cross-Site Scripting"
+  description: "A form of XSS where the attack payload is executed as a result of modifying the DOM 'environment' in the victim's browser used by the original client-side script so that the client-side code runs in an 'unexpected' manner."
+  impact: "Similar to other XSS attacks, but occurs entirely on the client-side, making it harder to detect by server-side defenses."
+  owasp: "A03:2021 - Injection"
+  cwe: "CWE-79"
+
+# --- OWASP A05:2021 - Security Misconfiguration ---
+"Security Misconfiguration":
+  title: "Security Misconfiguration"
+  description: "This can happen at any level of an application stack, including the network services, platform, web server, application server, database, frameworks, and custom code. Examples include exposed error messages, default credentials, or unnecessary features enabled."
+  impact: "Unauthorized access, system compromise, or disclosure of sensitive information."
+  owasp: "A05:2021 - Security Misconfiguration"
+  cwe: "CWE-2: Environmental Security Flaws"
+
+# --- OWASP A06:2021 - Vulnerable and Outdated Components ---
+"Outdated Service Component":
+  title: "Vulnerable and Outdated Service Component"
+  description: "The system is using a software component (e.g., web server, library, framework) with a known vulnerability (CVE). Attackers can abuse these flaws to take control of the server."
+  impact: "Ranges from information disclosure to full system compromise, depending on the specific CVE."
+  owasp: "A06:2021 - Vulnerable and Outdated Components"
+  cwe: "CWE-937: Using Components with Known Vulnerabilities"
+
+# Default fallback
+"default":
+  title: "Uncategorized Finding"
+  description: "A potential security issue was detected."
+  impact: "The impact varies depending on the specific nature of the finding."
+  owasp: "N/A"
+  cwe: "N/A"

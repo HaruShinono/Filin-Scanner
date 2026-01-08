@@ -61,14 +61,48 @@ def export_pdf(scan_id):
     if not scan:
         abort(404)
 
-    html_string = render_template('report_pdf.html', scan=scan)
+    # 1. Tải Knowledge Base
+    kb = {}
+    try:
+        with open('config/knowledge_base.yml', 'r', encoding='utf-8') as f:
+            kb = yaml.safe_load(f)
+    except Exception as e:
+        print(f"Could not load knowledge base: {e}")
+
+    # 2. "Làm giàu" dữ liệu lỗ hổng
+    enriched_vulns = []
+    for vuln in scan.vulnerabilities:
+        # Tìm thông tin trong KB. Dùng startswith để khớp cả "[Nuclei] SQL Injection" với "SQL Injection"
+        kb_info = kb.get('default')  # Default fallback
+        for key, value in kb.items():
+            if vuln.type.strip().startswith(key):
+                kb_info = value
+                break
+
+        # Gắn thông tin KB vào đối tượng vuln để template dễ dùng
+        vuln.kb_info = kb_info
+        enriched_vulns.append(vuln)
+
+    # 3. Tính toán thống kê
+    severity_counts = Counter(v.severity for v in enriched_vulns)
+
+    # Render HTML từ template báo cáo mới
+    html_string = render_template(
+        'report_pdf.html',
+        scan=scan,
+        vulnerabilities=enriched_vulns,
+        severity_counts=severity_counts
+    )
+
+    # Tạo PDF từ HTML string
     pdf = HTML(string=html_string).write_pdf()
 
+    # Trả về file PDF để download
     return Response(
         pdf,
         mimetype='application/pdf',
         headers={
-            'Content-Disposition': f'attachment;filename=report_scan_{scan.id}.pdf'
+            'Content-Disposition': f'attachment;filename=Scan-Report-{scan_id}.pdf'
         }
     )
 
