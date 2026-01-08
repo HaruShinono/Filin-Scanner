@@ -1,5 +1,7 @@
 # Filin Web Vulnerability Scanner
 
+<div align="center">
+
 ```text
  ,     ,    _______  ___   ___      ___   __    _                       
  )\___/(    |       ||   | |   |    |   | |  |  | |             
@@ -9,6 +11,7 @@
   `m-m`     |   |    |   | |       ||   | | | |   |           ^ ^
             |___|    |___| |_______||___| |_|  |__|
 ```
+</div>
 
 
 <p align="center">
