@@ -63,11 +63,9 @@ def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
         scan = db.session.get(Scan, scan_id)
-        if not scan:
-            print(f"Error: Scan with ID {scan_id} not found.", flush=True)
-            return
+        if not scan: return
 
-        print(f"Worker started for Scan ID: {scan_id}, Target: {scan.target_url}", flush=True)
+        print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
         scan.status = 'RUNNING'
         db.session.commit()
 
@@ -239,33 +237,12 @@ def run_scan_task(scan_id: int):
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
                     v_hash = _generate_dedup_hash(vuln)
-
                     if v_hash in seen_vuln_hashes:
                         return
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    # INDIVIDUAL AI REMEDIATION
-                    # AI filter (All vulners all allow for AI to give remediation)
-                    print(f"  [AI] Triggering individual fix for: {vuln.type}", flush=True)
-                    evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
-                    if isinstance(vuln.details, dict):
-                        if 'parameter' in vuln.details:
-                            evidence += f"Parameter: {vuln.details['parameter']}\n"
-                        if 'payload' in vuln.details:
-                            evidence += f"Payload: {vuln.details['payload']}\n"
-                        if 'issue' in vuln.details:
-                            evidence += f"Issue Details: {vuln.details['issue']}\n"
-                        evidence += f"Full Details Snippet: {str(vuln.details)[:300]}"
-
-                    ai_suggestion = generate_remediation(
-                        vulnerability_type=vuln.type,
-                        code_snippet=evidence,
-                        target_language="php"
-                    )
-
-                    if ai_suggestion:
-                        vuln.details['ai_suggestion'] = ai_suggestion
+                    # [ĐÃ XÓA] Phần gọi AI tự động đã bị xóa ở đây
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
@@ -277,12 +254,15 @@ def run_scan_task(scan_id: int):
                     )
                     db.session.add(vulnerability_model)
                     db.session.commit()
-
                     seen_vuln_hashes.add(v_hash)
+
+            # [MỚI] Áp dụng logic Scan Mode cho Core Scanner
+            crawl_depth = 0 if scan.scan_mode == 'single' else 2  # Nếu là Single thì không crawl (depth=0)
 
             scanner_instance = Scanner(
                 url=scan.target_url,
-                cookies=scan.auth_cookies
+                cookies=scan.auth_cookies,
+                depth=crawl_depth
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 

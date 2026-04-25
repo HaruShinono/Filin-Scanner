@@ -298,7 +298,50 @@
                 statusBadge.classList.add('text-bg-danger');
             }
         }
+            // [MỚI] Hàm gọi API AI On-Demand
+        async function triggerAiRemediation(vulnId) {
+            const btn = document.getElementById(`btn-ai-${vulnId}`);
+            const contentArea = document.getElementById(`ai-content-${vulnId}`);
 
+            // Đổi nút thành Loading
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is thinking...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/remediate/${vulnId}`, { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok && result.status === 'success') {
+                    const data = result.data;
+                    const safeFixedCode = escapeHtml(data.fixed_code);
+                    const safeExplanation = escapeHtml(data.explanation);
+
+                    // Render giao diện AI
+                    contentArea.innerHTML = `
+                        <div class="mt-3 p-3 bg-body-tertiary rounded border border-success">
+                            <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
+                            <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
+
+                            <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
+                            <div class="terminal-window">
+                                <div class="terminal-header">
+                                    <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+                                    <span class="title">secure_code.patch</span>
+                                </div>
+                                <pre class="terminal-body"><code>${safeFixedCode}</code></pre>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Failed. Try Again.';
+                    btn.classList.replace('btn-outline-primary', 'btn-outline-danger');
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error. Try Again.';
+                btn.disabled = false;
+            }
+        }
         function getSeverityBadgeClass(severity) {
             switch (severity.toLowerCase()) {
                 case 'critical': return 'text-bg-danger';
@@ -321,34 +364,44 @@
             }
 
             const ai_suggestion = details.ai_suggestion;
-            let aiTabNav = '';
+            let aiTabNav = `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="ai-tab-btn-${vuln.id}" data-bs-toggle="tab" data-bs-target="#ai-tab-${vuln.id}" type="button" role="tab">
+                        <i class="bi bi-robot text-primary me-1"></i>AI Remediation
+                    </button>
+                </li>`;
+
             let aiTabContent = '';
 
+            // Nếu ĐÃ CÓ kết quả AI (từ lần quét trước tải lại)
             if (ai_suggestion && ai_suggestion.explanation) {
                 const safeFixedCode = escapeHtml(ai_suggestion.fixed_code);
                 const safeExplanation = escapeHtml(ai_suggestion.explanation);
 
-                aiTabNav = `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="ai-tab-btn-${vuln.id}" data-bs-toggle="tab" data-bs-target="#ai-tab-${vuln.id}" type="button" role="tab">
-                        <i class="bi bi-stars text-warning me-1"></i>AI Suggestion
-                    </button>
-                </li>`;
-
                 aiTabContent = `
                 <div class="tab-pane fade" id="ai-tab-${vuln.id}" role="tabpanel">
-                    <div class="mt-3 p-3 bg-body-tertiary rounded border">
-                        <h6 class="fw-bold"><i class="bi bi-robot me-2 text-primary"></i>AI Analysis</h6>
-                        <p class="text-body-secondary" style="font-size: 0.95em;">${safeExplanation}</p>
-
-                        <h6 class="fw-bold mt-3"><i class="bi bi-code-slash me-2 text-success"></i>Suggested Fix</h6>
+                    <div class="mt-3 p-3 bg-body-tertiary rounded border border-success">
+                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
+                        <p class="text-body-secondary mb-3">${safeExplanation}</p>
                         <div class="terminal-window">
                             <div class="terminal-header">
                                 <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-                                <span class="title">patch.php</span>
+                                <span class="title">secure_code.patch</span>
                             </div>
                             <pre class="terminal-body"><code>${safeFixedCode}</code></pre>
                         </div>
+                    </div>
+                </div>`;
+            }
+            // Nếu CHƯA CÓ kết quả AI -> Hiển thị nút bấm
+            else {
+                aiTabContent = `
+                <div class="tab-pane fade" id="ai-tab-${vuln.id}" role="tabpanel">
+                    <div class="mt-4 text-center" id="ai-content-${vuln.id}">
+                        <p class="text-muted mb-3"><i class="bi bi-magic fs-4 d-block mb-2"></i> Use DeepSeek AI to analyze this specific vulnerability and generate a custom code fix.</p>
+                        <button id="btn-ai-${vuln.id}" class="btn btn-outline-primary" onclick="triggerAiRemediation(${vuln.id})">
+                            <i class="bi bi-cpu"></i> Generate AI Fix
+                        </button>
                     </div>
                 </div>`;
             }
@@ -467,5 +520,6 @@
 
         updateStatusBadge('{{ scan.status }}');
     });
+
 </script>
 {% endblock %}

@@ -1,32 +1,36 @@
-import json
 import time
+import json        # [ĐÃ THÊM] Để parse và dump dữ liệu json (trong api_remediate và stream)
+import yaml        # [ĐÃ THÊM] Để đọc file knowledge_base.yml
+from collections import Counter  # [ĐÃ THÊM] Để đếm số lượng severity trong export_pdf
+
 from flask import (Blueprint, Response, current_app, redirect, render_template,
-                   request, url_for, abort)
+                   request, url_for, abort, jsonify)
 from weasyprint import HTML
 
 from factory import db, executor
-from models import Scan
+from models import Scan, Vulnerability
 from tasks import run_scan_task
+from integrations.ai_remediator import generate_remediation
 
 main_routes = Blueprint('main', __name__)
-
 
 @main_routes.route('/')
 def dashboard():
     scans = Scan.query.order_by(Scan.start_time.desc()).all()
     return render_template('dashboard.html', scans=scans)
 
-
 @main_routes.route('/scan/new', methods=['POST'])
 def new_scan():
     target_url = request.form.get('target_url')
     auth_cookies = request.form.get('auth_cookies')
+    scan_mode = request.form.get('scan_mode', 'full')
 
     if not target_url or not target_url.strip():
         return "Target URL is required!", 400
 
     new_scan_obj = Scan(
         target_url=target_url.strip(),
+        scan_mode=scan_mode,
         status='PENDING',
         auth_cookies=auth_cookies.strip() if auth_cookies else None
     )
@@ -34,8 +38,38 @@ def new_scan():
     db.session.commit()
 
     executor.submit(run_scan_task, new_scan_obj.id)
-
     return redirect(url_for('main.scan_details', scan_id=new_scan_obj.id))
+
+@main_routes.route('/api/remediate/<int:vuln_id>', methods=['POST'])
+def api_remediate(vuln_id):
+    vuln = db.session.get(Vulnerability, vuln_id)
+    if not vuln:
+        return jsonify({"error": "Vulnerability not found"}), 404
+
+    try:
+        details_dict = json.loads(vuln.details)
+    except:
+        details_dict = {}
+
+    evidence = f"URL: {vuln.url}\nType: {vuln.type}\n"
+    if 'parameter' in details_dict:
+        evidence += f"Parameter: {details_dict['parameter']}\n"
+    if 'payload' in details_dict:
+        evidence += f"Payload: {details_dict['payload']}\n"
+
+    ai_suggestion = generate_remediation(
+        vulnerability_type=vuln.type,
+        code_snippet=evidence,
+        target_language="php"
+    )
+
+    if ai_suggestion and 'error' not in ai_suggestion:
+        details_dict['ai_suggestion'] = ai_suggestion
+        vuln.details = json.dumps(details_dict, ensure_ascii=False)
+        db.session.commit()
+        return jsonify({"status": "success", "data": ai_suggestion})
+    else:
+        return jsonify({"error": "AI failed to generate response"}), 500
 
 
 @main_routes.route('/scan/<int:scan_id>')
@@ -70,8 +104,7 @@ def export_pdf(scan_id):
 
     enriched_vulns = []
     for vuln in scan.vulnerabilities:
-
-        kb_info = kb.get('default')  # Default fallback
+        kb_info = kb.get('default')
         for key, value in kb.items():
             if vuln.type.strip().startswith(key):
                 kb_info = value

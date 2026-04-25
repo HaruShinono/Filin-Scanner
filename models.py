@@ -8,14 +8,12 @@ from factory import db
 # KHÔNG còn dòng 'db = SQLAlchemy()' ở đây nữa
 
 class Scan(db.Model):
-    """
-    Đại diện cho một lần quét (một phiên làm việc).
-    Tương ứng với bảng 'scan' trong cơ sở dữ liệu.
-    """
     __tablename__ = 'scan'
 
     id = db.Column(db.Integer, primary_key=True)
     target_url = db.Column(db.String(255), nullable=False)
+    scan_mode = db.Column(db.String(20), default='full', nullable=False)
+
     status = db.Column(db.String(50), default='PENDING', nullable=False)
     start_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     end_time = db.Column(db.DateTime, nullable=True)

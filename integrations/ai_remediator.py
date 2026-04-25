@@ -5,8 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # The model used for summary and redemiation
-# ollama pull codellama:7b
-MODEL_NAME = 'codellama:7b'
+MODEL_NAME = 'deepseek-coder:6.7b'
 
 
 def generate_remediation(vulnerability_type: str, code_snippet: str, target_language: str = "php") -> dict:
