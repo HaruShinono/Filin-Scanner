@@ -1,7 +1,7 @@
+import json
 import time
-import json        # [ĐÃ THÊM] Để parse và dump dữ liệu json (trong api_remediate và stream)
-import yaml        # [ĐÃ THÊM] Để đọc file knowledge_base.yml
-from collections import Counter  # [ĐÃ THÊM] Để đếm số lượng severity trong export_pdf
+import yaml
+from collections import Counter
 
 from flask import (Blueprint, Response, current_app, redirect, render_template,
                    request, url_for, abort, jsonify)
@@ -14,10 +14,12 @@ from integrations.ai_remediator import generate_remediation
 
 main_routes = Blueprint('main', __name__)
 
+
 @main_routes.route('/')
 def dashboard():
     scans = Scan.query.order_by(Scan.start_time.desc()).all()
     return render_template('dashboard.html', scans=scans)
+
 
 @main_routes.route('/scan/new', methods=['POST'])
 def new_scan():
@@ -39,6 +41,7 @@ def new_scan():
 
     executor.submit(run_scan_task, new_scan_obj.id)
     return redirect(url_for('main.scan_details', scan_id=new_scan_obj.id))
+
 
 @main_routes.route('/api/remediate/<int:vuln_id>', methods=['POST'])
 def api_remediate(vuln_id):
@@ -104,6 +107,7 @@ def export_pdf(scan_id):
 
     enriched_vulns = []
     for vuln in scan.vulnerabilities:
+
         kb_info = kb.get('default')
         for key, value in kb.items():
             if vuln.type.strip().startswith(key):
