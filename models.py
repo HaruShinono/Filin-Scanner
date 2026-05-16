@@ -1,11 +1,6 @@
-# models.py (ĐÃ SỬA LỖI)
-
 from datetime import datetime
 import json
-# Import đối tượng 'db' duy nhất từ factory.py
 from factory import db
-
-# KHÔNG còn dòng 'db = SQLAlchemy()' ở đây nữa
 
 class Scan(db.Model):
     __tablename__ = 'scan'
