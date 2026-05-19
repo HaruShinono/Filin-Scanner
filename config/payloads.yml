@@ -251,7 +251,7 @@ api:
     - "/v3/api-docs"
     - "/docs"
 
-# Outdated Component (We have Retire.js now)
+# Outdated Component (removed cause we have Retire.js now)
 outdated_component:
   libraries: []
 
