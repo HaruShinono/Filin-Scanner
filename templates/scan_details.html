@@ -51,6 +51,32 @@
         </div>
     </div>
 
+    {% if scan.site_tree %}
+    <h3 class="mb-3 mt-4">Site Structure (Crawled Map)</h3>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto; font-family: monospace;">
+            <i class="bi bi-globe me-2 text-primary"></i> <strong>{{ scan.target_url }}</strong>
+
+            {% macro render_tree(tree_node) %}
+                <ul class="list-unstyled ms-4 mt-1 border-start ps-3 border-secondary-subtle">
+                {% for key, child in tree_node.items() %}
+                    <li>
+                        {% if child %}
+                            <i class="bi bi-folder-fill text-warning me-1"></i> {{ key }}/
+                            {{ render_tree(child) }}
+                        {% else %}
+                            <i class="bi bi-file-earmark-text text-secondary me-1"></i> {{ key }}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% endmacro %}
+
+            {{ render_tree(scan.to_dict().get('site_tree', {})) }}
+        </div>
+    </div>
+    {% endif %}
+
     {% if scan.recon_findings %}
 
     {% set vulnerable_ports = [] %}

@@ -17,3 +17,4 @@ dnsrecon
 wafw00f
 ollama
 cvss
+scrapy

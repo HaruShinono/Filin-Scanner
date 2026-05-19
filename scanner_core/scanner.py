@@ -32,7 +32,8 @@ class Vulnerability:
 
 
 class Scanner:
-    def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10):
+    def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10,
+                 pre_crawled_urls: set = None):
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
@@ -43,7 +44,10 @@ class Scanner:
         if cookies:
             self._apply_cookies(cookies)
 
-        self.visited_urls: Set[str] = set()
+        self.visited_urls: Set[str] = pre_crawled_urls if pre_crawled_urls else set()
+        if not self.visited_urls:
+            self.visited_urls.add(self.base_url)
+
         self.lock = threading.Lock()
 
         self.payload_config = self._load_payload_config()
@@ -156,10 +160,11 @@ class Scanner:
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
         logger.info(f"--- Starting Scan on {self.base_url} ---")
 
-        logger.info("Phase 1: Crawling for URLs...")
-        self.crawl(self.base_url, 0)
-        logger.info(f"Crawling complete. Found {len(self.visited_urls)} unique URLs.")
+        if len(self.visited_urls) <= 1 and self.depth > 0:
+            logger.info("Phase 1: Fallback Crawling for URLs...")
+            self.crawl(self.base_url, 0)
 
+        logger.info(f"URLs to test: {len(self.visited_urls)}")
         logger.info(f"Phase 2: Running {len(self.testers)} types of tests on all URLs...")
 
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
