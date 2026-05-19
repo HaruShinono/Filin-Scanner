@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from factory import db
+
 
 class Scan(db.Model):
     __tablename__ = 'scan'
@@ -8,12 +9,12 @@ class Scan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     target_url = db.Column(db.String(255), nullable=False)
     scan_mode = db.Column(db.String(20), default='full', nullable=False)
-
     status = db.Column(db.String(50), default='PENDING', nullable=False)
-    start_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    start_time = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     end_time = db.Column(db.DateTime, nullable=True)
     ai_analysis = db.Column(db.Text, nullable=True)
     auth_cookies = db.Column(db.Text, nullable=True)
+
     vulnerabilities = db.relationship(
         'Vulnerability',
         backref='scan',
@@ -35,6 +36,7 @@ class Scan(db.Model):
         return {
             'id': self.id,
             'target_url': self.target_url,
+            'scan_mode': self.scan_mode,
             'status': self.status,
             'start_time': self.start_time.isoformat(),
             'end_time': self.end_time.isoformat() if self.end_time else None,
@@ -42,11 +44,27 @@ class Scan(db.Model):
             'ai_analysis': json.loads(self.ai_analysis) if self.ai_analysis else None
         }
 
+
+class ReconFinding(db.Model):
+    __tablename__ = 'recon_finding'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey('scan.id'), nullable=False)
+    tool = db.Column(db.String(50), nullable=False)
+    finding_type = db.Column(db.String(100), nullable=False)
+    details = db.Column(db.Text, nullable=False)
+
+    def __repr__(self):
+        return f"<ReconFinding {self.id}: '{self.tool} - {self.finding_type}'>"
+
+    def get_details_as_dict(self):
+        try:
+            return json.loads(self.details)
+        except json.JSONDecodeError:
+            return {}
+
+
 class Vulnerability(db.Model):
-    """
-    Đại diện cho một lỗ hổng bảo mật được tìm thấy.
-    Tương ứng với bảng 'vulnerability' trong cơ sở dữ liệu.
-    """
     __tablename__ = 'vulnerability'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -56,6 +74,10 @@ class Vulnerability(db.Model):
     url = db.Column(db.String(500), nullable=False)
     severity = db.Column(db.String(50), nullable=False)
     details = db.Column(db.Text, nullable=False)
+
+    cvss_score = db.Column(db.Float, nullable=True)
+    cvss_vector = db.Column(db.String(100), nullable=True)
+    cwe = db.Column(db.String(50), nullable=True)
 
     def __repr__(self):
         return f"<Vulnerability {self.id}: '{self.type}'>"
@@ -74,21 +96,8 @@ class Vulnerability(db.Model):
             'subcategory': self.subcategory,
             'url': self.url,
             'severity': self.severity,
+            'cvss_score': self.cvss_score,
+            'cvss_vector': self.cvss_vector,
+            'cwe': self.cwe,
             'details': self.get_details_as_dict()
         }
-
-class ReconFinding(db.Model):
-    __tablename__ = 'recon_finding'
-    id = db.Column(db.Integer, primary_key=True)
-    scan_id = db.Column(db.Integer, db.ForeignKey('scan.id'), nullable=False)
-    tool = db.Column(db.String(50), nullable=False)
-    finding_type = db.Column(db.String(100), nullable=False)
-    details = db.Column(db.Text, nullable=False)
-
-    def __repr__(self):
-        return f"<ReconFinding {self.id}: '{self.tool} - {self.finding_type}'>"
-    def get_details_as_dict(self):
-        try:
-            return json.loads(self.details)
-        except json.JSONDecodeError:
-            return {}

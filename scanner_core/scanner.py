@@ -14,7 +14,6 @@ import yaml
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 
-# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,9 @@ class Vulnerability:
     details: Dict
     severity: str
     subcategory: Optional[str] = None
+    cvss_score: Optional[float] = None
+    cvss_vector: Optional[str] = None
+    cwe: Optional[str] = None
 
 
 class Scanner:
@@ -153,6 +155,7 @@ class Scanner:
 
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
         logger.info(f"--- Starting Scan on {self.base_url} ---")
+
         logger.info("Phase 1: Crawling for URLs...")
         self.crawl(self.base_url, 0)
         logger.info(f"Crawling complete. Found {len(self.visited_urls)} unique URLs.")

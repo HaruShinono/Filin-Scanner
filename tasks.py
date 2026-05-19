@@ -1,6 +1,7 @@
 import json
 import traceback
 import hashlib
+import yaml
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -15,7 +16,22 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
-from integrations.ai_remediator import generate_remediation, generate_overall_analysis
+from integrations.ai_remediator import generate_overall_analysis
+from utils.cvss_calc import parse_and_calculate_cvss
+
+try:
+    with open('config/knowledge_base.yml', 'r', encoding='utf-8') as f:
+        KNOWLEDGE_BASE = yaml.safe_load(f)
+except Exception as e:
+    print(f"Failed to load KB: {e}")
+    KNOWLEDGE_BASE = {}
+
+
+def get_kb_info(vuln_type):
+    for key, value in KNOWLEDGE_BASE.items():
+        if vuln_type.startswith(key) or key in vuln_type:
+            return value
+    return KNOWLEDGE_BASE.get('default', {})
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
@@ -63,7 +79,9 @@ def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
         scan = db.session.get(Scan, scan_id)
-        if not scan: return
+        if not scan:
+            print(f"Error: Scan with ID {scan_id} not found.", flush=True)
+            return
 
         print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
         scan.status = 'RUNNING'
@@ -72,12 +90,10 @@ def run_scan_task(scan_id: int):
         seen_vuln_hashes = set()
 
         try:
-            # --- PHASE 1: RECONNAISSANCE ---
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
-            # 1. Run WAFW00F
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
                 finding = ReconFinding(
@@ -89,7 +105,6 @@ def run_scan_task(scan_id: int):
                 db.session.add(finding)
                 db.session.commit()
 
-            # 2. Run DNSRecon
             if domain:
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -103,11 +118,9 @@ def run_scan_task(scan_id: int):
                     db.session.add(finding)
                 db.session.commit()
 
-            # 3. Run Nmap
             if domain:
                 nmap_data = run_nmap(domain)
 
-                # A. Process Open Ports and Audit Services
                 for port_info in nmap_data.get('ports', []):
                     finding = ReconFinding(
                         scan_id=scan.id,
@@ -117,7 +130,6 @@ def run_scan_task(scan_id: int):
                     )
                     db.session.add(finding)
 
-                    # AUDIT: Check service versions
                     product = port_info.get('product')
                     version = port_info.get('version')
 
@@ -165,7 +177,6 @@ def run_scan_task(scan_id: int):
                                 seen_vuln_hashes.add(v_hash)
                                 print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
 
-                # B. Save Nmap Script Vulnerabilities
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     finding = ReconFinding(
                         scan_id=scan.id,
@@ -179,7 +190,6 @@ def run_scan_task(scan_id: int):
 
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
-            # --- PHASE 2: NUCLEI SCANNING ---
             print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             nuclei_results = run_nuclei(scan.target_url)
 
@@ -209,8 +219,7 @@ def run_scan_task(scan_id: int):
 
             db.session.commit()
 
-            # --- PHASE 3: SQLMAP SCANNING ---
-            print(f"[Scan ID: {scan_id}] Running sqlmap (Check console for progress)...", flush=True)
+            print(f"[Scan ID: {scan_id}] Running sqlmap...", flush=True)
             sqlmap_results = run_sqlmap(scan.target_url, scan.auth_cookies)
 
             for result in sqlmap_results:
@@ -231,33 +240,46 @@ def run_scan_task(scan_id: int):
 
             db.session.commit()
 
-            # --- PHASE 4: CORE PYTHON SCANNING ---
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
 
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
                     v_hash = _generate_dedup_hash(vuln)
+
                     if v_hash in seen_vuln_hashes:
                         return
 
                     print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
-                    # [ĐÃ XÓA] Phần gọi AI tự động đã bị xóa ở đây
+                    kb_info = get_kb_info(vuln.type)
+                    cwe = kb_info.get('cwe', 'N/A')
+                    cvss_vector = vuln.cvss_vector or kb_info.get('cvss_vector')
+                    cvss_score = vuln.cvss_score
+                    severity = vuln.severity
+
+                    if cvss_vector:
+                        calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
+                        if calculated_score is not None:
+                            cvss_score = calculated_score
+                            severity = calc_severity
 
                     vulnerability_model = Vulnerability(
                         scan_id=scan.id,
                         type=vuln.type,
                         subcategory=getattr(vuln, 'subcategory', None),
                         url=vuln.url,
-                        severity=vuln.severity,
+                        severity=severity,
+                        cvss_score=cvss_score,
+                        cvss_vector=cvss_vector,
+                        cwe=cwe,
                         details=json.dumps(vuln.details, indent=2, ensure_ascii=False)
                     )
                     db.session.add(vulnerability_model)
                     db.session.commit()
+
                     seen_vuln_hashes.add(v_hash)
 
-            # [MỚI] Áp dụng logic Scan Mode cho Core Scanner
-            crawl_depth = 0 if scan.scan_mode == 'single' else 2  # Nếu là Single thì không crawl (depth=0)
+            crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
             scanner_instance = Scanner(
                 url=scan.target_url,
@@ -266,8 +288,6 @@ def run_scan_task(scan_id: int):
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
-            # --- PHASE 5: AI EXECUTIVE SUMMARY ---
-            # Refresh scan object to get all new vulnerabilities
             scan = db.session.get(Scan, scan_id)
             has_recon = bool(scan.recon_findings)
             has_vuln = bool(scan.vulnerabilities)
@@ -277,29 +297,23 @@ def run_scan_task(scan_id: int):
 
                 vuln_summary = []
 
-                # + Application Vulners
                 for v in scan.vulnerabilities:
                     vuln_summary.append({'type': v.type, 'severity': v.severity})
 
-                # + Recon Findings -> Summary
                 if has_recon:
                     for rf in scan.recon_findings:
-                        # WAF
                         if rf.tool == 'wafw00f':
                             details = rf.get_details_as_dict()
                             vuln_summary.append(
                                 {'type': f"WAF Detected: {details.get('firewall', 'Unknown')}", 'severity': 'Info'})
-                        # Nmap Vulnerabilities (Critical)
                         elif rf.tool == 'nmap-vuln':
                             vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
-                        # Open Ports (Infrastructure)
                         elif rf.tool == 'nmap':
                             details = rf.get_details_as_dict()
                             vuln_summary.append(
                                 {'type': f"Open Port: {details.get('port')}/{details.get('service_name')}",
                                  'severity': 'Info'})
 
-                # Recall AI summary
                 analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
 
                 if analysis_result:
