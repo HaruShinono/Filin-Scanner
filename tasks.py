@@ -5,6 +5,7 @@ import yaml
 import os
 import subprocess
 import tempfile
+import requests
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -39,22 +40,13 @@ def get_kb_info(vuln_type):
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
-    GLOBAL_VULN_TYPES = [
-        'Cryptographic Failure',
-        'Security Misconfiguration',
-        'Security Logging and Monitoring Failure',
-        'Outdated Service Component',
-        'Using Components with Known Vulnerabilities',
-        'Software and Data Integrity Failure',
-        'Sensitive Data Exposure',
-        'Cross-Site Request Forgery (CSRF)',
-        'CSRF'
-    ]
-
+    GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
+                         'Security Logging and Monitoring Failure', 'Outdated Service Component',
+                         'Using Components with Known Vulnerabilities', 'Software and Data Integrity Failure',
+                         'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']
     parsed = urlparse(vuln.url)
     domain = parsed.netloc
     path = parsed.path
-
     details_str = ""
     if isinstance(vuln.details, dict):
         if 'parameter' in vuln.details:
@@ -70,13 +62,26 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
             details_str += f"|leak_type:{vuln.details['leak_type']}"
         elif 'form_action' in vuln.details:
             details_str += f"|action:{vuln.details['form_action']}"
-
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
     else:
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}|{path}{details_str}"
-
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
+
+
+def check_host_alive(url: str, cookies: str = None) -> bool:
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Scanner/1.0'}
+    cookie_dict = {}
+    if cookies:
+        for item in cookies.split(';'):
+            if '=' in item:
+                k, v = item.strip().split('=', 1)
+                cookie_dict[k] = v
+    try:
+        requests.get(url, headers=headers, cookies=cookie_dict, timeout=10, verify=False)
+        return True
+    except requests.exceptions.RequestException:
+        return False
 
 
 def run_scan_task(scan_id: int):
@@ -88,39 +93,51 @@ def run_scan_task(scan_id: int):
             return
 
         print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
+
+        if not check_host_alive(scan.target_url, scan.auth_cookies):
+            print(f"[Scan ID: {scan_id}] ERROR: Host is unreachable or down. Aborting scan.", flush=True)
+            scan.status = 'FAILED'
+            scan.ai_analysis = json.dumps({
+                "executive_summary": "Scan aborted because the target host did not respond.",
+                "risk_score": 0, "top_priorities": ["Check if the URL is correct", "Ensure the server is running"]
+            })
+            scan.end_time = datetime.now(timezone.utc)
+            db.session.commit()
+            return
+
         scan.status = 'RUNNING'
         db.session.commit()
 
         seen_vuln_hashes = set()
 
         try:
-            print(f"[Scan ID: {scan_id}] Starting Phase 0: Crawling & Site Tree Generation...", flush=True)
             scraped_urls = set()
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
             if crawl_depth > 0:
+                print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
+
                 with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
                     out_file = tmp_file.name
 
                 cmd = [
                     'scrapy', 'runspider', 'integrations/scrapy_spider.py',
                     '-a', f'target={scan.target_url}',
-                    '-a', f'depth_limit={crawl_depth}',
-                    '-o', out_file
+                    '-a', f'depth_limit={crawl_depth}'
                 ]
+                if scan.auth_cookies:
+                    cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
+                cmd.extend(['-o', out_file])
 
-                print(f"  [Scrapy] Running spider on {scan.target_url}...", flush=True)
                 subprocess.run(cmd, capture_output=True)
 
                 if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
                     with open(out_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         for item in data:
-                            if 'url' in item:
-                                scraped_urls.add(item['url'])
+                            if 'url' in item: scraped_urls.add(item['url'])
 
-                if os.path.exists(out_file):
-                    os.remove(out_file)
+                if os.path.exists(out_file): os.remove(out_file)
 
                 site_tree = build_site_tree(list(scraped_urls))
                 scan.site_tree = json.dumps(site_tree)
@@ -129,54 +146,32 @@ def run_scan_task(scan_id: int):
             else:
                 scraped_urls.add(scan.target_url)
 
-            print(f"[Scan ID: {scan_id}] Starting Phase 1: Reconnaissance...", flush=True)
+            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
-                finding = ReconFinding(
-                    scan_id=scan.id,
-                    tool='wafw00f',
-                    finding_type='WAF Detected',
-                    details=json.dumps(waf_result)
-                )
-                db.session.add(finding)
+                db.session.add(ReconFinding(scan_id=scan.id, tool='wafw00f', finding_type='WAF Detected',
+                                            details=json.dumps(waf_result)))
                 db.session.commit()
 
             if domain:
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
-                    rec_type = record.get('type', 'Unknown')
-                    finding = ReconFinding(
-                        scan_id=scan.id,
-                        tool='dnsrecon',
-                        finding_type=f'DNS Record ({rec_type})',
-                        details=json.dumps(record)
-                    )
-                    db.session.add(finding)
+                    db.session.add(ReconFinding(scan_id=scan.id, tool='dnsrecon',
+                                                finding_type=f"DNS Record ({record.get('type', 'Unknown')})",
+                                                details=json.dumps(record)))
                 db.session.commit()
 
             if domain:
                 nmap_data = run_nmap(domain)
-
                 for port_info in nmap_data.get('ports', []):
-                    finding = ReconFinding(
-                        scan_id=scan.id,
-                        tool='nmap',
-                        finding_type='Open Port',
-                        details=json.dumps(port_info)
-                    )
-                    db.session.add(finding)
-
-                    product = port_info.get('product')
-                    version = port_info.get('version')
-
+                    db.session.add(ReconFinding(scan_id=scan.id, tool='nmap', finding_type='Open Port',
+                                                details=json.dumps(port_info)))
+                    product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
-                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
-                              flush=True)
                         vulns = audit_service_version(product, version)
-
                         if vulns:
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
                             severity = 'Low'
@@ -187,21 +182,12 @@ def run_scan_task(scan_id: int):
                             elif max_score >= 4.0:
                                 severity = 'Medium'
 
-                            audit_details = {
-                                'product': product,
-                                'version': version,
-                                'port': port_info.get('port'),
-                                'cves': vulns
-                            }
-
                             temp_vuln = VulnerabilityDataClass(
-                                type='Outdated Service Component',
-                                subcategory=f"{product} {version}",
-                                url=f"{scan.target_url} (Port {port_info.get('port')})",
-                                severity=severity,
-                                details=audit_details
+                                type='Outdated Service Component', subcategory=f"{product} {version}",
+                                url=f"{scan.target_url} (Port {port_info.get('port')})", severity=severity,
+                                details={'product': product, 'version': version, 'port': port_info.get('port'),
+                                         'cves': vulns}
                             )
-
                             v_hash = _generate_dedup_hash(temp_vuln)
                             if v_hash not in seen_vuln_hashes:
                                 kb_info = get_kb_info(temp_vuln.type)
@@ -215,48 +201,25 @@ def run_scan_task(scan_id: int):
                                         cvss_score = calculated_score
                                         severity = calc_severity
 
-                                vulnerability_model = Vulnerability(
-                                    scan_id=scan.id,
-                                    type=temp_vuln.type,
-                                    subcategory=temp_vuln.subcategory,
-                                    url=temp_vuln.url,
-                                    severity=severity,
-                                    cvss_score=cvss_score,
-                                    cvss_vector=cvss_vector,
-                                    cwe=cwe,
-                                    details=json.dumps(temp_vuln.details, indent=2)
-                                )
-                                db.session.add(vulnerability_model)
+                                db.session.add(Vulnerability(scan_id=scan.id, type=temp_vuln.type,
+                                                             subcategory=temp_vuln.subcategory, url=temp_vuln.url,
+                                                             severity=severity, cvss_score=cvss_score,
+                                                             cvss_vector=cvss_vector, cwe=cwe,
+                                                             details=json.dumps(temp_vuln.details, indent=2)))
                                 seen_vuln_hashes.add(v_hash)
-                                print(f"  [Auditor] Found vulnerabilities for {product} {version}", flush=True)
 
                 for vuln_info in nmap_data.get('vulnerabilities', []):
-                    finding = ReconFinding(
-                        scan_id=scan.id,
-                        tool='nmap-vuln',
-                        finding_type=f"NSE: {vuln_info.get('script_id')}",
-                        details=json.dumps(vuln_info)
-                    )
-                    db.session.add(finding)
-
+                    db.session.add(ReconFinding(scan_id=scan.id, tool='nmap-vuln',
+                                                finding_type=f"NSE: {vuln_info.get('script_id')}",
+                                                details=json.dumps(vuln_info)))
                 db.session.commit()
 
-            print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
-
-            print(f"[Scan ID: {scan_id}] Starting Phase 2: Nuclei scanning...", flush=True)
-            nuclei_results = run_nuclei(scan.target_url)
-
-            for n_vuln in nuclei_results:
-                print(f"  [Scan ID: {scan_id}] Nuclei found: {n_vuln['type']}", flush=True)
-
+            print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
+            for n_vuln in run_nuclei(scan.target_url):
                 nuclei_temp = VulnerabilityDataClass(
-                    type=f"[Nuclei] {n_vuln['type']}",
-                    subcategory=n_vuln['details'].get('template_id'),
-                    url=n_vuln['url'],
-                    severity=n_vuln['severity'],
-                    details=n_vuln['details']
+                    type=f"[Nuclei] {n_vuln['type']}", subcategory=n_vuln['details'].get('template_id'),
+                    url=n_vuln['url'], severity=n_vuln['severity'], details=n_vuln['details']
                 )
-
                 v_hash = _generate_dedup_hash(nuclei_temp)
                 if v_hash not in seen_vuln_hashes:
                     kb_info = get_kb_info(nuclei_temp.type)
@@ -268,153 +231,86 @@ def run_scan_task(scan_id: int):
                     if cvss_vector:
                         calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
                         if calculated_score is not None:
-                            cvss_score = calculated_score
-                            sev = calc_severity
+                            cvss_score, sev = calculated_score, calc_severity
 
-                    vulnerability_model = Vulnerability(
-                        scan_id=scan.id,
-                        type=nuclei_temp.type,
-                        subcategory=nuclei_temp.subcategory,
-                        url=nuclei_temp.url,
-                        severity=sev,
-                        cvss_score=cvss_score,
-                        cvss_vector=cvss_vector,
-                        cwe=cwe,
-                        details=json.dumps(nuclei_temp.details, indent=2)
-                    )
-                    db.session.add(vulnerability_model)
+                    db.session.add(
+                        Vulnerability(scan_id=scan.id, type=nuclei_temp.type, subcategory=nuclei_temp.subcategory,
+                                      url=nuclei_temp.url, severity=sev, cvss_score=cvss_score, cvss_vector=cvss_vector,
+                                      cwe=cwe, details=json.dumps(nuclei_temp.details, indent=2)))
                     seen_vuln_hashes.add(v_hash)
-
             db.session.commit()
 
-            print(f"[Scan ID: {scan_id}] Starting Phase 3: SQLMap scanning...", flush=True)
-            sqlmap_results = run_sqlmap(scan.target_url, scan.auth_cookies)
-
-            for result in sqlmap_results:
-                print(f"  [Scan ID: {scan_id}] SQLMap found injection!", flush=True)
-
-                vuln_count = len(result.get('findings', []))
-                title = f"SQL Injection (Verified by sqlmap) - {vuln_count} points"
-
+            print(f"[Scan ID: {scan_id}] Running sqlmap...", flush=True)
+            for result in run_sqlmap(scan.target_url, scan.auth_cookies):
+                title = f"SQL Injection (Verified by sqlmap) - {len(result.get('findings', []))} points"
                 kb_info = get_kb_info("SQL Injection")
                 cwe = kb_info.get('cwe', 'N/A')
                 cvss_vector = kb_info.get('cvss_vector')
-                cvss_score = None
-                sev = "Critical"
+                cvss_score, sev = None, "Critical"
 
                 if cvss_vector:
                     calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
                     if calculated_score is not None:
-                        cvss_score = calculated_score
-                        sev = calc_severity
+                        cvss_score, sev = calculated_score, calc_severity
 
-                vulnerability_model = Vulnerability(
-                    scan_id=scan.id,
-                    type=title,
-                    subcategory="Automated Exploitation",
-                    url=scan.target_url,
-                    severity=sev,
-                    cvss_score=cvss_score,
-                    cvss_vector=cvss_vector,
-                    cwe=cwe,
-                    details=json.dumps(result, indent=2)
-                )
-                db.session.add(vulnerability_model)
-
+                db.session.add(Vulnerability(scan_id=scan.id, type=title, subcategory="Automated Exploitation",
+                                             url=scan.target_url, severity=sev, cvss_score=cvss_score,
+                                             cvss_vector=cvss_vector, cwe=cwe, details=json.dumps(result, indent=2)))
             db.session.commit()
 
-            print(f"[Scan ID: {scan_id}] Starting Phase 4: Core Python Scanner...", flush=True)
+            print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
 
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
                     v_hash = _generate_dedup_hash(vuln)
-
-                    if v_hash in seen_vuln_hashes:
-                        return
-
-                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
+                    if v_hash in seen_vuln_hashes: return
 
                     kb_info = get_kb_info(vuln.type)
-                    cwe = kb_info.get('cwe', 'N/A')
                     cvss_vector = vuln.cvss_vector or kb_info.get('cvss_vector')
-                    cvss_score = vuln.cvss_score
-                    severity = vuln.severity
+                    cvss_score, severity = vuln.cvss_score, vuln.severity
 
                     if cvss_vector:
                         calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
                         if calculated_score is not None:
-                            cvss_score = calculated_score
-                            severity = calc_severity
+                            cvss_score, severity = calculated_score, calc_severity
 
-                    vulnerability_model = Vulnerability(
-                        scan_id=scan.id,
-                        type=vuln.type,
-                        subcategory=getattr(vuln, 'subcategory', None),
-                        url=vuln.url,
-                        severity=severity,
-                        cvss_score=cvss_score,
-                        cvss_vector=cvss_vector,
-                        cwe=cwe,
-                        details=json.dumps(vuln.details, indent=2, ensure_ascii=False)
-                    )
-                    db.session.add(vulnerability_model)
+                    db.session.add(
+                        Vulnerability(scan_id=scan.id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
+                                      url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
+                                      cwe=kb_info.get('cwe', 'N/A'),
+                                      details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
                     db.session.commit()
-
                     seen_vuln_hashes.add(v_hash)
 
             scanner_instance = Scanner(
-                url=scan.target_url,
-                cookies=scan.auth_cookies,
-                depth=crawl_depth,
+                url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
                 pre_crawled_urls=scraped_urls
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
-            print(f"[Scan ID: {scan_id}] Starting Phase 5: AI Executive Summary...", flush=True)
             scan = db.session.get(Scan, scan_id)
-            has_recon = bool(scan.recon_findings)
-            has_vuln = bool(scan.vulnerabilities)
-
-            if has_recon or has_vuln:
-                vuln_summary = []
-
-                for v in scan.vulnerabilities:
-                    vuln_summary.append({'type': v.type, 'severity': v.severity})
-
-                if has_recon:
-                    for rf in scan.recon_findings:
-                        if rf.tool == 'wafw00f':
-                            details = rf.get_details_as_dict()
-                            vuln_summary.append(
-                                {'type': f"WAF Detected: {details.get('firewall', 'Unknown')}", 'severity': 'Info'})
-                        elif rf.tool == 'nmap-vuln':
-                            vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
-                        elif rf.tool == 'nmap':
-                            details = rf.get_details_as_dict()
-                            vuln_summary.append(
-                                {'type': f"Open Port: {details.get('port')}/{details.get('service_name')}",
-                                 'severity': 'Info'})
+            if bool(scan.recon_findings) or bool(scan.vulnerabilities):
+                vuln_summary = [{'type': v.type, 'severity': v.severity} for v in scan.vulnerabilities]
+                for rf in scan.recon_findings:
+                    if rf.tool == 'wafw00f':
+                        vuln_summary.append(
+                            {'type': f"WAF: {rf.get_details_as_dict().get('firewall', 'Unknown')}", 'severity': 'Info'})
+                    elif rf.tool == 'nmap-vuln':
+                        vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
 
                 analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
-
                 if analysis_result:
                     scan.ai_analysis = json.dumps(analysis_result, indent=2)
                     db.session.commit()
-                    print(f"  [AI] Executive Summary generated.", flush=True)
 
             scan.status = 'COMPLETED'
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)
 
         except Exception as e:
-            print(f"Scan ID: {scan_id} for target {scan.target_url} failed.", flush=True)
-            print(f"Error details: {e}", flush=True)
             traceback.print_exc()
-
             db.session.rollback()
-
             scan = db.session.get(Scan, scan_id)
-            if scan:
-                scan.status = 'FAILED'
+            if scan: scan.status = 'FAILED'
 
         finally:
             scan = db.session.get(Scan, scan_id)
