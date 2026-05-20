@@ -17,13 +17,12 @@ echo " ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀)\___/(       |       
 echo "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀{(@)v(@)}      |    ___||   | |   |    |   | |   |_| |      "
 echo " ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀{|~~~|}       |   |___ |   | |   |    |   | |       |      "
 echo " ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀{/^^^\}       |    ___||   | |   |___ |   | |  _    |      "
-echo "  ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀\`m-m\`        |   |    |   | |       ||   | | | |   |      "
+echo "  ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ ⠀\`m-m\`      |   |    |   | |       ||   | | | |   |      "
 echo "      ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀         |___|    |___| |_______||___| |_|  |__|      "
 echo -e "${NC}"
 echo -e "${YELLOW}[*] Starting Automated Installation for Filin Scanner...${NC}\n"
 
 # --- 1. Privilege Check ---
-# Đảm bảo KHÔNG chạy thẳng bằng root để tránh lỗi phân quyền cho thư mục venv sau này
 if [ "$EUID" -eq 0 ]; then
   echo -e "${RED}[!] Please DO NOT run this script as root (Don't use 'sudo ./install.sh').${NC}"
   echo -e "${YELLOW}[!] Run it as your normal user. The script will prompt for your sudo password when necessary.${NC}"
@@ -35,11 +34,9 @@ sudo apt update
 sudo apt install -y python3 python3-pip python3-venv git curl wget unzip
 
 echo -e "${YELLOW}[2/5] Installing external security tools and libraries...${NC}"
-# Cài đặt các công cụ quét và thư viện hỗ trợ render PDF (WeasyPrint)
 sudo apt install -y nmap sqlmap dnsrecon nuclei python3-cffi python3-brotli libpango-1.0-0 libpangoft2-1.0-0
 
 echo -e "${YELLOW}[3/5] Setting up Local AI (Ollama & DeepSeek Coder)...${NC}"
-# Kiểm tra xem ollama đã được cài chưa
 if ! command -v ollama &> /dev/null; then
     echo -e "${GREEN}[+] Installing Ollama...${NC}"
     curl -fsSL https://ollama.com/install.sh | sh
@@ -47,7 +44,6 @@ else
     echo -e "${GREEN}[+] Ollama is already installed. Skipping.${NC}"
 fi
 
-# Khởi động service ollama nếu nó đang tắt (dùng cho Linux)
 sudo systemctl enable --now ollama 2>/dev/null || true
 sleep 3 # Đợi vài giây để service khởi động hẳn
 
@@ -63,7 +59,6 @@ else
 fi
 
 echo -e "${YELLOW}[5/5] Installing Python packages from requirements.txt...${NC}"
-# Kích hoạt venv và cài đặt gói
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
