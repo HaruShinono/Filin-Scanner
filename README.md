@@ -17,9 +17,9 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge" alt="License"></a>
-    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner"><img src="https://img.shields.io/github/stars/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge&logo=github" alt="Stars"></a>
-    <a href="https://github.com/HaruShinono/Filin-Web-Vulnerability-Scanner/issues"><img src="https://img.shields.io/github/issues/HaruShinono/Filin-Web-Vulnerability-Scanner?style=for-the-badge&logo=github" alt="Issues"></a>
+    <a href="https://github.com/HaruShinono/Filin-Scanner/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HaruShinono/Filin-Scanner?style=for-the-badge" alt="License"></a>
+    <a href="https://github.com/HaruShinono/Filin-Scanner"><img src="https://img.shields.io/github/stars/HaruShinono/Filin-Scanner?style=for-the-badge&logo=github" alt="Stars"></a>
+    <a href="https://github.com/HaruShinono/Filin-Scanner/issues"><img src="https://img.shields.io/github/issues/HaruShinono/Filin-Scanner?style=for-the-badge&logo=github" alt="Issues"></a>
 </p>
 
 Filin is a comprehensive security tool designed to automate the process of web vulnerability scanning. It combines a powerful Python backend, integrations with industry-standard security tools, and an intuitive web UI to provide a seamless and effective security assessment experience.
@@ -28,11 +28,13 @@ Filin is a comprehensive security tool designed to automate the process of web v
 
 -   **Modular Architecture:** Easily extendable with custom Python modules for specific vulnerability checks.
 -   **Local Web Interface:** Manage scans and view results through a clean, real-time web dashboard running on `http://127.0.0.1:5000`.
--   **Advanced Integrations:** Leverages the power of external tools like **Nmap**, **SQLMap**, and **Nuclei** for deep infrastructure and vulnerability analysis.
--   **AI-Powered Remediation:** Utilizes a local LLM (Ollama) to provide AI-generated explanations and code fixes for discovered vulnerabilities.
+-   **Advanced Integrations:** Leverages the power of external tools like **Nmap**, **SQLMap**, **Nuclei**, **DNSRecon**, and **WAFW00F** for deep analysis.
+-   **Dynamic & Intelligent Crawling:** Uses **Scrapy** to build a comprehensive site tree, discovering links even within modern JavaScript files (SPA support).
+-   **AI-Powered Remediation:** Utilizes a local LLM (**DeepSeek Coder** via Ollama) to provide on-demand, AI-generated explanations and code fixes.
 -   **Authenticated Scanning:** Supports cookie-based authentication to scan protected areas of web applications.
--   **Professional Reporting:** Generate detailed scan reports in PDF format for documentation and distribution.
--   **Smart Analysis:** Implements verification and deduplication logic to reduce false positives and eliminate redundant findings.
+-   **Professional Reporting:** Generate detailed scan reports in **PDF format**, including executive summaries and vulnerability details.
+-   **Standardized Classification:** Maps findings to CWE and calculates risk scores based on the **CVSS v4.0** standard.
+-   **High-Fidelity Results:** Implements verification logic (Differential Analysis) and intelligent deduplication to reduce false positives and report noise.
 
 ## Installation
 
@@ -61,8 +63,8 @@ Filin uses a local AI model for remediation advice.
 # 1. Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. Pull the CodeLlama model (this will download several GB)
-ollama pull codellama:7b
+# 2. Pull the DeepSeek Coder model (optimized for code tasks)
+ollama pull deepseek-coder:6.7b
 
 # 3. (Optional) Start the Ollama server if it's not running
 ollama serve
@@ -98,22 +100,26 @@ pip install -r requirements.txt
 
 3.  **Run a Scan:**
     
-    -   Enter the target URL into the "New Scan" form.
-    -   (Optional) If you need to perform an authenticated scan, paste the target application's session cookies into the "Authentication Cookies" field.
+    -   Enter the target URL.
+    -   Choose a **Scan Mode**:
+        -   **Single URL:** A quick scan targeting only the exact URL provided.
+        -   **Full Website:** A deep scan that uses Scrapy to crawl and map the entire website.
+    -   (Optional) Paste session cookies into the "Authentication Cookies" field for authenticated scanning.
     -   Click "Start Scan". You will be redirected to a real-time results page.
 
 ## Project Structure
 
 ```
-Filin-Web-Vulnerability-Scanner/
+Filin-Scanner/
 ├── app.py                  # Main Flask application entry point
 ├── factory.py              # Application factory for creating Flask app
 ├── routes.py               # Defines all web routes and API endpoints
 ├── tasks.py                # Background worker logic for running scans
 ├── models.py               # SQLAlchemy database models
-├── config/                 # Configuration files (payloads, settings)
-├── integrations/           # Modules for integrating external tools (Nmap, Nuclei, etc.)
+├── config/                 # Configuration files (payloads, knowledge base)
+├── integrations/           # Modules for integrating external tools
 ├── scanner_core/           # Core Python-based scanning engine and testers
+├── utils/                  # Utility functions (CVSS calculator, tree builder)
 ├── static/                 # CSS, JavaScript, and image assets
 ├── templates/              # HTML templates for the web interface
 ├── requirements.txt        # Python package dependencies
