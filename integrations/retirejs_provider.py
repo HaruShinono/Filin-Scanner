@@ -1,17 +1,21 @@
-# integrations/retirejs_provider.py
 import requests
 import json
 import os
 import time
 from packaging import version
+import logging
 
-# URL chính thức của Retire.js repository
-RETIRE_JS_REPO_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository.json"
+logger = logging.getLogger(__name__)
+
+RETIRE_JS_REPO_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository.json"
 CACHE_FILE = "retirejs_repository.json"
-CACHE_DURATION = 86400  # 24 giờ
+CACHE_DURATION = 86400  # 24 hours
+
 
 def get_retirejs_database():
-    """Tải và cache database Retire.js"""
+    """
+    Downloads and caches the Retire.js vulnerability database.
+    """
     if os.path.exists(CACHE_FILE):
         file_age = time.time() - os.path.getmtime(CACHE_FILE)
         if file_age < CACHE_DURATION:
@@ -19,58 +23,52 @@ def get_retirejs_database():
                 return json.load(f)
 
     try:
-        print("Downloading Retire.js database...")
-        resp = requests.get(RETIRE_JS_REPO_URL, timeout=10)
+        print("  [Retire.js] Downloading updated vulnerability database...", flush=True)
+        resp = requests.get(RETIRE_JS_REPO_URL, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             with open(CACHE_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f)
+            print("  [Retire.js] Database download complete.", flush=True)
             return data
     except Exception as e:
-        print(f"Failed to download Retire.js DB: {e}")
-        # Nếu lỗi và có file cũ thì dùng tạm
+        logger.error(f"Failed to download Retire.js DB: {e}")
+        # Fallback to old cache if download fails
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
     return {}
 
-def check_library_version(lib_name, detected_version, db):
-    """
-    Kiểm tra version có bị lỗi thời dựa trên DB của Retire.js
-    Trả về danh sách CVE nếu có.
-    """
-    if lib_name not in db:
-        return []
 
-    lib_info = db[lib_name]
-    vulnerabilities = []
+def check_library_vulnerabilities(detected_version_str: str, lib_data: dict) -> list:
+    """
+    Compares a detected version against the vulnerabilities in the library's database entry.
+    """
+    vulnerabilities_found = []
 
     try:
-        det_ver = version.parse(detected_version)
-    except:
+        detected_ver = version.parse(detected_version_str)
+    except version.InvalidVersion:
         return []
 
-    # Database Retire.js có cấu trúc: "vulnerabilities": [{"below": "1.2.3", "identifiers": {...}}]
-    for vuln in lib_info.get('vulnerabilities', []):
-        below_ver_str = vuln.get('below')
-        at_or_above_str = vuln.get('atOrAbove')
-
-        is_vuln = False
+    for vuln in lib_data.get('vulnerabilities', []):
+        is_vulnerable = False
         try:
-            if below_ver_str:
-                if det_ver < version.parse(below_ver_str):
-                    is_vuln = True
-                    # Nếu có ràng buộc dưới (atOrAbove)
-                    if at_or_above_str and det_ver < version.parse(at_or_above_str):
-                        is_vuln = False
-        except:
+            # Check if version is below the vulnerable threshold
+            if 'below' in vuln and detected_ver < version.parse(vuln['below']):
+                # If there's a lower bound, ensure the version is within that range
+                if 'atOrAbove' in vuln and detected_ver < version.parse(vuln['atOrAbove']):
+                    is_vulnerable = False
+                else:
+                    is_vulnerable = True
+        except version.InvalidVersion:
             continue
 
-        if is_vuln:
-            vulnerabilities.append({
+        if is_vulnerable:
+            vulnerabilities_found.append({
                 'severity': vuln.get('severity', 'medium'),
                 'identifiers': vuln.get('identifiers', {}),
                 'info': vuln.get('info', [])
             })
 
-    return vulnerabilities
+    return vulnerabilities_found

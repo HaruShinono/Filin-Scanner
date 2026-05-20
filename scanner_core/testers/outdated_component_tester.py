@@ -6,26 +6,13 @@ from bs4 import BeautifulSoup
 
 from scanner_core.scanner import Vulnerability
 from .base_tester import BaseTester
-from integrations.retirejs_provider import get_retirejs_database, check_library_version
+from integrations.retirejs_provider import get_retirejs_database, check_library_vulnerabilities
 
 
 class OutdatedComponentTester(BaseTester):
     def __init__(self, session: requests.Session, config: dict):
         super().__init__(session, config)
-        # Tải database ngay khi khởi tạo scanner
-        self.retire_db = get_retirejs_database()
-
-        # Mặc định một số regex để nhận diện tên thư viện từ URL/Script
-        # Retire.js DB cũng có regex nhưng để đơn giản ta dùng map này kết hợp
-        self.lib_patterns = {
-            'jquery': r'jquery[.-]v?([0-9.]+)',
-            'bootstrap': r'bootstrap[.-]v?([0-9.]+)',
-            'angular': r'angular[.-]v?([0-9.]+)',
-            'react': r'react[.-]v?([0-9.]+)',
-            'vue': r'vue[.-]v?([0-9.]+)',
-            'moment': r'moment[.-]v?([0-9.]+)',
-            'lodash': r'lodash[.-]v?([0-9.]+)'
-        }
+        self.retire_db = get_retirejs_database().get('js', {})
 
     def test(self, url: str) -> List[Vulnerability]:
         vulns = []
@@ -37,62 +24,74 @@ class OutdatedComponentTester(BaseTester):
             soup = BeautifulSoup(resp.text, 'html.parser')
             scripts = soup.find_all('script', src=True)
 
+            processed_scripts = set()
+
             for script in scripts:
-                src = script.get('src')
-                if not src: continue
+                script_src = script.get('src')
+                if not script_src:
+                    continue
 
-                # 1. Nhận diện thư viện và version từ URL (filename)
-                # Ví dụ: /js/jquery-3.5.1.min.js
-                lib_name = None
-                detected_version = None
+                full_script_url = urljoin(url, script_src)
+                if full_script_url in processed_scripts:
+                    continue
+                processed_scripts.add(full_script_url)
 
-                src_lower = src.lower()
+                for lib_name, lib_data in self.retire_db.items():
+                    extractors = lib_data.get('extractors', {})
+                    detected_version = None
 
-                for name, pattern in self.lib_patterns.items():
-                    if name in src_lower:
-                        match = re.search(pattern, src_lower)
-                        if match:
-                            lib_name = name
-                            detected_version = match.group(1)
+                    uri_regexes = extractors.get('uri', []) + extractors.get('filename', [])
+                    for regex in uri_regexes:
+                        try:
+                            match = re.search(regex, full_script_url)
+                            if match:
+                                if match.groups():
+                                    detected_version = match.group(1)
+                                break
+                        except re.error:
+                            continue
+
+                    if detected_version:
+                        known_vulns = check_library_vulnerabilities(detected_version, lib_data)
+                        if known_vulns:
+                            highest_severity = self._calculate_highest_severity(known_vulns)
+                            vulns.append(self._create_vulnerability_object(
+                                url, lib_name, detected_version, full_script_url, known_vulns, highest_severity
+                            ))
                             break
 
-                # Nếu không tìm thấy trong URL, có thể fetch file JS để check header (Optional - Tốn thời gian)
-                # Ở đây ta tập trung vào filename cho nhanh
-
-                if lib_name and detected_version:
-                    # 2. Tra cứu trong database Retire.js
-                    known_vulns = check_library_version(lib_name, detected_version, self.retire_db)
-
-                    if known_vulns:
-                        # Chọn severity cao nhất tìm được
-                        highest_severity = 'Medium'
-                        details_list = []
-
-                        for v in known_vulns:
-                            sev = v['severity'].title()  # low -> Low
-                            if sev == 'High' or sev == 'Critical':
-                                highest_severity = sev
-
-                            details_list.append({
-                                'severity': sev,
-                                'identifiers': v['identifiers'],
-                                'info': v['info']
-                            })
-
-                        vulns.append(Vulnerability(
-                            type='Using Components with Known Vulnerabilities',
-                            subcategory=f'{lib_name.title()} {detected_version}',
-                            url=url,
-                            details={
-                                'library': lib_name,
-                                'version': detected_version,
-                                'resource': src,
-                                'vulnerabilities': details_list
-                            },
-                            severity=highest_severity
-                        ))
-
-        except Exception as e:
+        except Exception:
             pass
 
         return vulns
+
+    def _calculate_highest_severity(self, known_vulns: list) -> str:
+        severities = [v.get('severity', 'low').lower() for v in known_vulns]
+        if 'critical' in severities: return 'Critical'
+        if 'high' in severities: return 'High'
+        if 'medium' in severities: return 'Medium'
+        return 'Low'
+
+    def _create_vulnerability_object(self, page_url, lib_name, version, resource_url, vulns_list, severity):
+        details = {
+            'library': lib_name,
+            'version': version,
+            'resource_url': resource_url,
+            'vulnerabilities_found': []
+        }
+        for v in vulns_list:
+            cve = v.get('identifiers', {}).get('CVE', [])
+            summary = v.get('identifiers', {}).get('summary', '')
+            details['vulnerabilities_found'].append({
+                'cve': cve[0] if cve else 'N/A',
+                'summary': summary,
+                'info_links': v.get('info', [])
+            })
+
+        return Vulnerability(
+            type='Using Components with Known Vulnerabilities',
+            subcategory=f'{lib_name.title()} {version}',
+            url=page_url,
+            details=details,
+            severity=severity
+        )
