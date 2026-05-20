@@ -198,8 +198,7 @@ def run_scan_task(scan_id: int):
                                 if cvss_vector:
                                     calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
                                     if calculated_score is not None:
-                                        cvss_score = calculated_score
-                                        severity = calc_severity
+                                        cvss_score, severity = calculated_score, calc_severity
 
                                 db.session.add(Vulnerability(scan_id=scan.id, type=temp_vuln.type,
                                                              subcategory=temp_vuln.subcategory, url=temp_vuln.url,

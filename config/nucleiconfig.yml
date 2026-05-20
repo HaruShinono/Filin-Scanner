@@ -1,0 +1,49 @@
+
+# Cập nhật cac dữ liệu lỗ hổng mới nhất.
+update_templates: true
+
+# Mức độ nghiêm trọng cần quét. Quét tất cả.
+severities:
+  - "info"
+  - "low"
+  - "medium"
+  - "high"
+  - "critical"
+
+# Tags (thẻ) để quét. Bao gồm các thẻ quan trọng nhất để tăng độ phủ.
+# 'cve', 'rce', 'sqli', 'lfi', 'xss': Các lỗi injection và CVE phổ biến.
+# 'config', 'misconfig': Các lỗi cấu hình sai.
+# 'default-logins', 'exposed-panels': Tìm trang quản trị và tài khoản mặc định.
+# 'tech': Phát hiện công nghệ (ví dụ: WordPress, Joomla).
+# 'osint': Thu thập thông tin công khai (có thể hơi nhiễu nhưng hữu ích).
+# 'takeover': Quét lỗi Subdomain Takeover.
+# 'fuzz': Các template dùng để fuzzing tham số.
+tags:
+  - "cve"
+  - "rce"
+  - "sqli"
+  - "lfi"
+  - "xss"
+  - "ssti"
+  - "config"
+  - "misconfig"
+  - "default-logins"
+  - "exposed-panels"
+  - "tech"
+  - "osint"
+  - "takeover"
+  - "fuzz"
+  - "ssrf"
+  - "crlf"
+  - "prototype-pollution"
+
+# Giới hạn số request mỗi giây. Giữ ở mức vừa phải để không bị ban IP.
+# Nếu quét localhost, có thể tăng lên 500.
+rate_limit: 150
+
+# Các tham số dòng lệnh bổ sung.
+# Xóa '-etags intrusive' để cho phép Nuclei chạy cả các template có khả năng
+# thay đổi dữ liệu (ví dụ: tạo file, tạo user). CẨN THẬN KHI DÙNG!
+# '-no-interactsh': Tắt server OAST (Out-of-Band) của Nuclei để chạy nhanh hơn
+# nếu bạn không tập trung vào các lỗi Blind.
+extra_args: ""
