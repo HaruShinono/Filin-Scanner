@@ -1,263 +1,16 @@
-{% extends 'layout.html' %}
-
-{% block title %}Scan #{{ scan.id }} - {{ scan.target_url }}{% endblock %}
-
-{% block content %}
-<div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="mb-0">Scan Details</h1>
-            <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
-        </div>
-        <div>
-            <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
-                <i class="bi bi-file-earmark-pdf"></i> Export PDF
-            </a>
-            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Dashboard
-            </a>
-        </div>
-    </div>
-
-    <div class="card bg-body-secondary mb-4">
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-5">
-                    <strong>Target:</strong>
-                    <p class="font-monospace mb-0">{{ scan.target_url }}</p>
-                </div>
-                <div class="col-md-2">
-                    <strong>Mode:</strong>
-                    <p class="mb-0"><span class="badge text-bg-secondary">{{ scan.scan_mode | upper }}</span></p>
-                </div>
-                <div class="col-md-3">
-                    <strong>Started:</strong>
-                    <p id="start-time" class="mb-0">{{ scan.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                </div>
-                <div class="col-md-2">
-                    <strong>Status:</strong>
-                    <p class="mb-0"><span id="scan-status-badge" class="badge">Loading...</span></p>
-                </div>
-            </div>
-            <div class="row mt-3">
-                <div class="col">
-                    <strong>Progress:</strong>
-                    <div id="progress-container" class="progress" role="progressbar" aria-label="Scan progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
-                    </div>
-                    <small id="progress-message" class="text-body-secondary mt-1 d-block">Initializing scan...</small>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {% if scan.site_tree %}
-    <h3 class="mb-3 mt-4">Site Structure (Crawled Map)</h3>
-    <div class="card shadow-sm mb-4">
-        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto; font-family: monospace;">
-            <i class="bi bi-globe me-2 text-primary"></i> <strong>{{ scan.target_url }}</strong>
-
-            {% macro render_tree(tree_node) %}
-                <ul class="list-unstyled ms-4 mt-1 border-start ps-3 border-secondary-subtle">
-                {% for key, child in tree_node.items() %}
-                    <li>
-                        {% if child %}
-                            <i class="bi bi-folder-fill text-warning me-1"></i> {{ key }}/
-                            {{ render_tree(child) }}
-                        {% else %}
-                            <i class="bi bi-file-earmark-text text-secondary me-1"></i> {{ key }}
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            {% endmacro %}
-
-            {{ render_tree(scan.to_dict().get('site_tree', {})) }}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if scan.recon_findings %}
-
-    {% set vulnerable_ports = [] %}
-    {% for finding in scan.recon_findings %}
-        {% if finding.tool == 'nmap-vuln' %}
-            {% set _ = vulnerable_ports.append(finding.get_details_as_dict().port) %}
-        {% endif %}
-    {% endfor %}
-
-    <h3 class="mb-3">Reconnaissance Findings</h3>
-
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card h-100 shadow-sm">
-                <div class="card-header bg-dark text-white">
-                    <i class="bi bi-hdd-network me-2"></i> Infrastructure & Ports
-                </div>
-                <div class="card-body p-0">
-                    <ul class="list-group list-group-flush">
-                        {% for finding in scan.recon_findings %}
-                            {% set details = finding.get_details_as_dict() %}
-
-                            {% if finding.tool == 'wafw00f' %}
-                                <li class="list-group-item bg-danger-subtle border-start border-danger border-4">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <span class="text-danger fw-bold"><i class="bi bi-fire me-2"></i>WAF Detected</span>
-                                        <span class="badge text-bg-danger">{{ details.firewall }}</span>
-                                    </div>
-                                    <small class="text-muted">Manufacturer: {{ details.manufacturer }}</small>
-                                </li>
-
-                            {% elif finding.tool == 'nmap' %}
-                                {% set is_vuln = details.port in vulnerable_ports %}
-
-                                <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
-                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
-                                        <div class="d-flex align-items-center">
-                                            <span class="badge bg-dark me-2" style="min-width: 60px;">{{ details.port }}/{{ details.protocol }}</span>
-                                            <span class="fw-bold text-primary">{{ details.service_name | upper }}</span>
-                                        </div>
-
-                                        {% if is_vuln %}
-                                            <span class="badge bg-danger animate-pulse">
-                                                <i class="bi bi-exclamation-triangle-fill"></i> VULN
-                                            </span>
-                                        {% endif %}
-                                    </div>
-
-                                    <div class="small text-muted ms-1">
-                                        {% if details.display_string and details.display_string != details.service_name %}
-                                            <i class="bi bi-info-circle me-1" style="font-size: 0.8rem;"></i>
-                                            {{ details.display_string }}
-                                        {% else %}
-                                            <span class="fst-italic opacity-50">No version info</span>
-                                        {% endif %}
-                                    </div>
-                                </li>
-                            {% endif %}
-                        {% endfor %}
-
-                        {% if not scan.recon_findings | selectattr('tool', 'in', ['wafw00f', 'nmap']) | list %}
-                            <li class="list-group-item text-center text-muted fst-italic py-3">No infrastructure data found.</li>
-                        {% endif %}
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card h-100 shadow-sm">
-                <div class="card-header bg-dark text-white">
-                    <i class="bi bi-globe me-2"></i> DNS Records
-                </div>
-                <div class="card-body p-0">
-                    <ul class="list-group list-group-flush">
-                        {% set dns_findings = scan.recon_findings | selectattr('tool', 'equalto', 'dnsrecon') | list %}
-
-                        {% for finding in dns_findings %}
-                            {% set details = finding.get_details_as_dict() %}
-                            <li class="list-group-item">
-                                <div class="row align-items-center">
-                                    <div class="col-3">
-                                        <span class="badge text-bg-info w-100">{{ details.type }}</span>
-                                    </div>
-                                    <div class="col-9 font-monospace text-break" style="font-size: 0.85em;">
-                                        {% if details.type in ['A', 'AAAA'] %}
-                                            {{ details.address }}
-                                        {% elif details.type in ['NS', 'MX', 'CNAME'] %}
-                                            {{ details.target }}
-                                        {% elif details.type == 'TXT' %}
-                                            {{ details.strings }}
-                                        {% elif details.type == 'SOA' %}
-                                            {{ details.mname }}
-                                        {% else %}
-                                            {{ details }}
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </li>
-                        {% endfor %}
-
-                        {% if not dns_findings %}
-                            <li class="list-group-item text-center text-muted fst-italic py-3">No DNS records found.</li>
-                        {% endif %}
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
-    {% if nmap_vulns %}
-    <div class="card border-danger mb-4 shadow">
-        <div class="card-header text-bg-danger d-flex align-items-center">
-            <i class="bi bi-radioactive fs-4 me-2"></i>
-            <h5 class="mb-0">Critical Infrastructure Vulnerabilities (Nmap NSE)</h5>
-        </div>
-        <div class="card-body p-0 bg-light">
-            <div class="accordion accordion-flush" id="nmapVulnAccordion">
-                {% for finding in nmap_vulns %}
-                    {% set details = finding.get_details_as_dict() %}
-                    <div class="accordion-item">
-                        <h2 class="accordion-header" id="headingNmap{{ finding.id }}">
-                            <button class="accordion-button collapsed fw-bold text-danger" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
-                                <span class="badge bg-danger me-2">PORT {{ details.port }}</span>
-                                <span class="font-monospace">{{ finding.finding_type | replace('NSE: ', '') }}</span>
-                            </button>
-                        </h2>
-                        <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
-                            <div class="accordion-body p-0">
-                                <div class="terminal-window">
-                                    <div class="terminal-header">
-                                        <span class="dot red"></span>
-                                        <span class="dot yellow"></span>
-                                        <span class="dot green"></span>
-                                        <span class="title">nmap output</span>
-                                    </div>
-                                    <pre class="terminal-body"><code>{{ details.output }}</code></pre>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    {% endif %}
-
-    <h3 class="mb-3">Application Vulnerabilities</h3>
-    <div id="vulnerabilities-accordion" class="accordion shadow-sm">
-
-        <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2 text-body-secondary">Scanning & Analyzing...</p>
-        </div>
-
-        <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
-             <i class="bi bi-shield-check fs-3"></i>
-             <h4 class="alert-heading mt-2">Scan Complete</h4>
-             <p>No application-level vulnerabilities were detected.</p>
-        </div>
-    </div>
-
-    <div class="mb-5"></div>
-</div>
-{% endblock %}
-
 {% block scripts %}
 <script>
-    async function triggerAiRemediation(vulnId) {
-        const btn = document.getElementById(`btn-ai-${vulnId}`);
-        const contentArea = document.getElementById(`ai-content-${vulnId}`);
+    // Hàm gọi AI Remediation cho Nhóm Lớn
+    async function triggerAiRemediation(groupId, firstVulnId) {
+        const btn = document.getElementById(`btn-ai-${groupId}`);
+        const contentArea = document.getElementById(`ai-content-${groupId}`);
 
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is analyzing...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is analyzing the group...';
         btn.disabled = true;
 
         try {
-            const response = await fetch(`/api/remediate/${vulnId}`, { method: 'POST' });
+            // Gọi API dựa trên ID của lỗ hổng đầu tiên trong nhóm làm đại diện
+            const response = await fetch(`/api/remediate/${firstVulnId}`, { method: 'POST' });
             const result = await response.json();
 
             if (response.ok && result.status === 'success') {
@@ -266,7 +19,7 @@
                 const safeExplanation = escapeHtml(data.explanation);
 
                 contentArea.innerHTML = `
-                    <div class="p-3 bg-body-tertiary rounded border border-success text-start mt-3">
+                    <div class="p-3 bg-body-tertiary rounded border border-success text-start">
                         <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
                         <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
 
@@ -314,162 +67,170 @@
         const noVulnsFoundMessage = document.getElementById('no-vulns-found');
 
         let vulnerabilityCount = 0;
-        const groupState = {};
 
-        const severityValues = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0 };
+        // [MỚI] Object lưu trữ các Nhóm Lớn
+        const vulnGroups = {};
+
+        // Hàm tính toán điểm severity để so sánh
+        const sevScore = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0, 'unknown': 0 };
 
         function updateStatusBadge(status) {
             statusBadge.textContent = status;
             statusBadge.className = 'badge';
-            if (status === 'COMPLETED') {
-                statusBadge.classList.add('text-bg-success');
-            } else if (status === 'RUNNING') {
-                statusBadge.classList.add('text-bg-info');
-            } else if (status === 'PENDING') {
-                statusBadge.classList.add('text-bg-secondary');
-            } else if (status === 'FAILED') {
-                statusBadge.classList.add('text-bg-danger');
-            }
+            if (status === 'COMPLETED') statusBadge.classList.add('text-bg-success');
+            else if (status === 'RUNNING') statusBadge.classList.add('text-bg-info');
+            else if (status === 'PENDING') statusBadge.classList.add('text-bg-secondary');
+            else if (status === 'FAILED') statusBadge.classList.add('text-bg-danger');
         }
 
         function getSeverityBadgeClass(severity) {
             switch (severity.toLowerCase()) {
                 case 'critical': return 'text-bg-danger';
                 case 'high': return 'text-bg-danger';
-                case 'medium': return 'text-bg-warning';
+                case 'medium': return 'text-bg-warning text-dark';
                 case 'low': return 'text-bg-primary';
                 default: return 'text-bg-secondary';
             }
         }
 
+        // [MỚI] Hàm phân loại lỗ hổng thành Nhóm Lớn
         function getGroupName(vulnType) {
-            const typeLower = vulnType.toLowerCase();
-            if (typeLower.includes('ssl') || typeLower.includes('tls') || typeLower.includes('certificate')) return "SSL/TLS Configuration Issues";
-            if (typeLower.includes('cookie') || typeLower.includes('session')) return "Session & Cookie Management";
-            if (typeLower.includes('header') || typeLower.includes('clickjacking') || typeLower.includes('csp')) return "Missing Security Headers";
-            if (typeLower.includes('sql injection') || typeLower.includes('sqli')) return "SQL Injection";
-            if (typeLower.includes('xss') || typeLower.includes('cross-site scripting')) return "Cross-Site Scripting (XSS)";
-            if (typeLower.includes('outdated') || typeLower.includes('known vulnerabilities') || typeLower.includes('component')) return "Vulnerable/Outdated Components";
-            if (typeLower.includes('exposure') || typeLower.includes('leak') || typeLower.includes('information')) return "Sensitive Information Exposure";
-            if (typeLower.includes('access control') || typeLower.includes('privilege') || typeLower.includes('idor')) return "Broken Access Control";
-            if (typeLower.includes('csrf') || typeLower.includes('forgery')) return "Cross-Site Request Forgery (CSRF)";
-            return vulnType;
+            const t = vulnType.toLowerCase();
+            if (t.includes('ssl') || t.includes('tls') || t.includes('cipher') || t.includes('certificate'))
+                return 'SSL/TLS Configuration Issues';
+            if (t.includes('header') || t.includes('hsts') || t.includes('clickjacking') || t.includes('content-security-policy'))
+                return 'Missing Security Headers';
+            if (t.includes('outdated') || t.includes('known vulnerabilities'))
+                return 'Vulnerable or Outdated Components';
+            if (t.includes('directory listing'))
+                return 'Directory Listing Enabled';
+            if (t.includes('cookie'))
+                return 'Insecure Cookie Configuration';
+
+            // Mặc định: Nếu không khớp luật gộp nào, lấy chính tên lỗi làm tên nhóm
+            // Bỏ tiền tố [Nuclei] nếu có để nhóm dễ hơn
+            return vulnType.replace(/\[Nuclei\]\s*/i, '').trim();
         }
 
-        function getGroupId(groupName) {
-            return 'group-' + groupName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        }
+        // [MỚI] Xử lý từng lỗ hổng và gom nhóm
+        function processVulnerability(vuln) {
+            vulnerabilityCount++;
+            loadingState.classList.add('d-none');
 
-        function getHighestSeverity(sev1, sev2) {
-            const val1 = severityValues[sev1.toLowerCase()] || 0;
-            const val2 = severityValues[sev2.toLowerCase()] || 0;
-            return val1 > val2 ? sev1 : sev2;
-        }
+            const groupName = getGroupName(vuln.type);
+            // Tạo ID an toàn cho DOM từ tên nhóm
+            const groupId = 'grp-' + btoa(unescape(encodeURIComponent(groupName))).replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
 
-        function createOrUpdateGroup(groupName, severity) {
-            const groupId = getGroupId(groupName);
-
-            if (!groupState[groupId]) {
-                groupState[groupId] = {
+            // 1. NẾU NHÓM CHƯA TỒN TẠI -> TẠO GIAO DIỆN NHÓM LỚN (PARENT)
+            if (!vulnGroups[groupId]) {
+                vulnGroups[groupId] = {
+                    name: groupName,
+                    maxSeverity: vuln.severity,
                     count: 0,
-                    highestSeverity: severity
+                    firstVulnId: vuln.id // Lưu ID đầu tiên để gửi cho AI
                 };
 
-                const groupHtml = `
-                    <div class="accordion-item border border-2 mb-3 rounded" style="overflow: hidden;" id="item-${groupId}">
+                const aiTabNav = `
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="ai-tab-btn-${groupId}" data-bs-toggle="tab" data-bs-target="#ai-tab-${groupId}" type="button" role="tab">
+                            <i class="bi bi-stars text-warning me-1"></i>AI Remediation
+                        </button>
+                    </li>`;
+
+                const aiTabContent = `
+                    <div class="tab-pane fade" id="ai-tab-${groupId}" role="tabpanel">
+                        <div class="mt-4 text-center" id="ai-content-${groupId}">
+                            <p class="text-muted mb-3"><i class="bi bi-magic fs-4 d-block mb-2"></i> Use DeepSeek AI to analyze this class of vulnerabilities and generate a general fix strategy.</p>
+                            <button id="btn-ai-${groupId}" class="btn btn-outline-primary" onclick="triggerAiRemediation('${groupId}', ${vuln.id})">
+                                <i class="bi bi-cpu"></i> Generate AI Fix for Group
+                            </button>
+                        </div>
+                    </div>`;
+
+                const parentHtml = `
+                    <div class="accordion-item border border-2 mb-3 rounded" id="parent-${groupId}">
                         <h2 class="accordion-header" id="heading-${groupId}">
-                            <button class="accordion-button collapsed fw-bold fs-5 bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${groupId}">
-                                <span id="badge-${groupId}" class="badge ${getSeverityBadgeClass(severity)} me-3">${severity}</span>
-                                ${groupName}
-                                <span class="badge bg-secondary ms-2 rounded-pill" id="count-${groupId}">1 issue</span>
+                            <button class="accordion-button collapsed bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${groupId}">
+                                <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" id="badge-sev-${groupId}">${vuln.severity}</span>
+                                <span class="fw-bold me-2" style="font-size: 1.1em;">${groupName}</span>
+                                <span class="badge rounded-pill text-bg-secondary ms-auto" id="badge-count-${groupId}">1 issue</span>
                             </button>
                         </h2>
                         <div id="collapse-${groupId}" class="accordion-collapse collapse" data-bs-parent="#vulnerabilities-accordion">
-                            <div class="accordion-body bg-body-tertiary p-3" id="body-${groupId}">
-                                <!-- Child vulns go here -->
+                            <div class="accordion-body">
+                                <ul class="nav nav-tabs" role="tablist">
+                                    <li class="nav-item" role="presentation">
+                                        <button class="nav-link active" id="details-tab-${groupId}" data-bs-toggle="tab" data-bs-target="#details-pane-${groupId}" type="button" role="tab">Instances Details</button>
+                                    </li>
+                                    ${aiTabNav}
+                                </ul>
+                                <div class="tab-content pt-3">
+                                    <div class="tab-pane fade show active" id="details-pane-${groupId}" role="tabpanel">
+                                        <!-- Các nhánh nhỏ (children) sẽ được nhét vào đây -->
+                                        <div class="list-group" id="children-list-${groupId}">
+                                        </div>
+                                    </div>
+                                    ${aiTabContent}
+                                </div>
                             </div>
                         </div>
                     </div>
                 `;
-                accordion.insertAdjacentHTML('beforeend', groupHtml);
-            } else {
-                const state = groupState[groupId];
-                state.highestSeverity = getHighestSeverity(state.highestSeverity, severity);
-
-                const badgeEl = document.getElementById(`badge-${groupId}`);
-                badgeEl.textContent = state.highestSeverity;
-                badgeEl.className = `badge ${getSeverityBadgeClass(state.highestSeverity)} me-3`;
+                accordion.insertAdjacentHTML('beforeend', parentHtml);
             }
 
-            groupState[groupId].count++;
-            document.getElementById(`count-${groupId}`).textContent = `${groupState[groupId].count} issue${groupState[groupId].count > 1 ? 's' : ''}`;
+            // 2. CẬP NHẬT TRẠNG THÁI NHÓM LỚN (Count & Max Severity)
+            const group = vulnGroups[groupId];
+            group.count++;
+            document.getElementById(`badge-count-${groupId}`).innerText = `${group.count} issues`;
 
-            return groupId;
-        }
+            if (sevScore[vuln.severity.toLowerCase()] > sevScore[group.maxSeverity.toLowerCase()]) {
+                group.maxSeverity = vuln.severity;
+                const badgeEl = document.getElementById(`badge-sev-${groupId}`);
+                badgeEl.innerText = vuln.severity;
+                badgeEl.className = `badge ${getSeverityBadgeClass(vuln.severity)} me-2`;
+            }
 
-        function createVulnerabilityCard(vuln, groupId) {
+            // 3. TẠO VÀ CHÈN NHÁNH NHỎ (CHILD INSTANCE) VÀO TRONG NHÓM LỚN
             let details = vuln.details;
             if (typeof details === 'string') {
                 try { details = JSON.parse(details); } catch (e) { details = {}; }
             }
 
-            let cvssBadge = '';
-            let cweBadge = '';
-            if (vuln.cvss_score) cvssBadge = `<span class="badge bg-dark border border-secondary text-light me-2" title="${vuln.cvss_vector || ''}">CVSS v4.0: ${vuln.cvss_score}</span>`;
-            if (vuln.cwe && vuln.cwe !== 'N/A') cweBadge = `<span class="badge text-bg-secondary me-2">${vuln.cwe.split(':')[0]}</span>`;
-
-            const ai_suggestion = details.ai_suggestion;
-            let aiSection = '';
-
-            if (ai_suggestion && ai_suggestion.explanation) {
-                const safeFixedCode = escapeHtml(ai_suggestion.fixed_code);
-                const safeExplanation = escapeHtml(ai_suggestion.explanation);
-                aiSection = `
-                    <div class="mt-3 p-3 bg-white rounded border border-success border-start-0 border-end-0 border-bottom-0">
-                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>AI Analysis Complete</h6>
-                        <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
-                        <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
-                        <div class="terminal-window"><div class="terminal-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="title">secure_code.patch</span></div><pre class="terminal-body"><code>${safeFixedCode}</code></pre></div>
-                    </div>`;
-            } else {
-                aiSection = `
-                    <div class="mt-3 pt-3 border-top text-end" id="ai-content-${vuln.id}">
-                        <button id="btn-ai-${vuln.id}" class="btn btn-sm btn-outline-primary" onclick="triggerAiRemediation(${vuln.id})">
-                            <i class="bi bi-magic"></i> Generate AI Fix
-                        </button>
-                    </div>`;
-            }
-
-            let detailsHtml = '<table class="table table-sm table-bordered mt-3" style="font-size: 0.9em;"><tbody>';
+            let detailsHtml = '<ul class="list-unstyled mb-0 ms-3 mt-2 border-start border-2 ps-3">';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
-                    if (key === 'ai_suggestion') continue;
+                    if (key === 'ai_suggestion') continue; // AI dời ra tab lớn rồi
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
-                    detailsHtml += `<tr><th scope="row" style="width: 25%; background-color: rgba(0,0,0,0.03);">${key}</th><td><code class="text-break" style="white-space: pre-wrap; color: var(--bs-body-color);">${escapeHtml(displayValue)}</code></td></tr>`;
+                    displayValue = escapeHtml(displayValue);
+                    detailsHtml += `<li class="small mb-1"><strong class="text-secondary">${key}:</strong> <code class="text-break bg-light px-1 rounded">${displayValue}</code></li>`;
                 }
             } else {
-                 detailsHtml += `<tr><td><code>${escapeHtml(details)}</code></td></tr>`;
+                 detailsHtml += `<li class="small"><code>${escapeHtml(details)}</code></li>`;
             }
-            detailsHtml += '</tbody></table>';
+            detailsHtml += '</ul>';
 
-            const cardHtml = `
-                <div class="card mb-3 shadow-sm border-0 border-start border-4 ${getSeverityBadgeClass(vuln.severity).replace('text-bg-', 'border-')}">
-                    <div class="card-body">
-                        <h5 class="card-title d-flex align-items-center mb-1">
-                            ${cvssBadge} ${cweBadge}
-                            <span class="ms-1">${vuln.type}</span>
-                        </h5>
-                        <h6 class="card-subtitle mb-3 text-muted" style="font-size: 0.85em;">
-                            ${vuln.subcategory ? `<strong>${vuln.subcategory}</strong> | ` : ''}
-                            <a href="${vuln.url}" target="_blank" class="text-decoration-none text-muted"><i class="bi bi-link-45deg"></i> ${vuln.url}</a>
+            let cweBadge = vuln.cwe && vuln.cwe !== 'N/A' ? `<span class="badge text-bg-secondary ms-2" style="font-size: 0.7em;">${vuln.cwe.split(':')[0]}</span>` : '';
+
+            const childHtml = `
+                <div class="list-group-item list-group-item-action flex-column align-items-start border-0 border-bottom mb-2 pb-3">
+                    <div class="d-flex w-100 justify-content-between align-items-center">
+                        <h6 class="mb-1 fw-bold text-dark">
+                            <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-1" style="font-size: 0.7em;">${vuln.severity}</span>
+                            ${vuln.type.replace(/\[Nuclei\]\s*/i, '')} ${cweBadge}
                         </h6>
+                    </div>
+                    <p class="mb-1 small">
+                        <strong>URL:</strong> <a href="${vuln.url}" target="_blank" class="text-decoration-none text-break">${vuln.url}</a>
+                    </p>
+                    ${vuln.subcategory ? `<p class="mb-1 small"><strong>Subcategory:</strong> ${vuln.subcategory}</p>` : ''}
+                    <div class="mt-2">
                         ${detailsHtml}
-                        ${aiSection}
                     </div>
                 </div>
             `;
 
-            document.getElementById(`body-${groupId}`).insertAdjacentHTML('beforeend', cardHtml);
+            document.getElementById(`children-list-${groupId}`).insertAdjacentHTML('beforeend', childHtml);
         }
 
         eventSource.onmessage = function (event) {
@@ -479,14 +240,25 @@
             progressMessage.textContent = data.progress_message || '...';
 
             if(data.new_vulnerabilities) {
-                data.new_vulnerabilities.forEach(vuln => {
-                    vulnerabilityCount++;
-                    loadingState.classList.add('d-none');
+                // Gọi hàm process mới
+                data.new_vulnerabilities.forEach(processVulnerability);
+            }
 
-                    const groupName = getGroupName(vuln.type);
-                    const groupId = createOrUpdateGroup(groupName, vuln.severity);
-                    createVulnerabilityCard(vuln, groupId);
-                });
+            // Phần AI Tổng quan (Giữ nguyên)
+            if (data.ai_analysis) {
+                const aiSec = document.getElementById('ai-summary-section');
+                const analysis = data.ai_analysis;
+                aiSec.classList.remove('d-none');
+                document.getElementById('ai-risk-score').innerText = analysis.risk_score || 'N/A';
+                document.getElementById('ai-exec-summary').innerText = analysis.executive_summary || 'No summary available.';
+                document.getElementById('ai-strategy').innerText = analysis.strategic_recommendations || 'No strategy provided.';
+                const priorityList = document.getElementById('ai-priorities');
+                priorityList.innerHTML = '';
+                if (analysis.top_priorities && Array.isArray(analysis.top_priorities)) {
+                    analysis.top_priorities.forEach(item => {
+                        priorityList.innerHTML += `<li class="mb-2"><i class="bi bi-caret-right-fill text-warning me-2"></i>${item}</li>`;
+                    });
+                }
             }
 
             if (data.status === 'RUNNING') {
@@ -501,7 +273,7 @@
                 if (data.status === 'COMPLETED') {
                     progressBar.classList.remove('bg-info');
                     progressBar.classList.add('bg-success');
-                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} issues.`;
+                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} app vulnerabilities.`;
                     if (vulnerabilityCount === 0) {
                         loadingState.classList.add('d-none');
                         noVulnsFoundMessage.classList.remove('d-none');
