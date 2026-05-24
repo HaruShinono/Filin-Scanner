@@ -228,6 +228,7 @@
 
     <h3 class="mb-3">Application Vulnerabilities</h3>
     <div id="vulnerabilities-accordion" class="accordion shadow-sm">
+
         <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
@@ -242,133 +243,12 @@
         </div>
     </div>
 
-    <div id="ai-summary-section" class="d-none mb-5 mt-5">
-        <div class="card border-0 shadow-lg" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white;">
-            <div class="card-header bg-transparent border-0 pt-4 px-4">
-                <div class="d-flex align-items-center">
-                    <i class="bi bi-robot fs-1 me-3 text-info"></i>
-                    <div>
-                        <h2 class="mb-0 fw-bold">AI Security Consultant</h2>
-                        <p class="text-info-emphasis mb-0">Automated Executive Report & Strategy</p>
-                    </div>
-                    <div class="ms-auto text-end">
-                        <span class="d-block text-uppercase small opacity-75">Overall Risk Score</span>
-                        <span id="ai-risk-score" class="display-4 fw-bold text-danger">--</span><span class="fs-5">/100</span>
-                    </div>
-                </div>
-            </div>
-            <div class="card-body p-4">
-                <div class="mb-4">
-                    <h5 class="text-uppercase text-secondary small fw-bold ls-1">Executive Summary</h5>
-                    <p id="ai-exec-summary" class="lead" style="font-weight: 300;"></p>
-                </div>
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
-                            <h5 class="text-warning mb-3"><i class="bi bi-list-check me-2"></i>Immediate Actions</h5>
-                            <ul id="ai-priorities" class="list-unstyled mb-0"></ul>
-                        </div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
-                            <h5 class="text-success mb-3"><i class="bi bi-shield-check me-2"></i>Strategic Advice</h5>
-                            <p id="ai-strategy" class="small mb-0 opacity-75"></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="mb-5"></div>
 </div>
-
-<style>
-/* CSS cho Nhóm Lỗ hổng (Parent Accordion) */
-.vuln-group-header .accordion-button {
-    background-color: var(--bs-light);
-    border-bottom: 1px solid var(--bs-border-color);
-}
-.vuln-group-header .accordion-button:not(.collapsed) {
-    background-color: rgba(var(--bs-primary-rgb), 0.05);
-}
-/* CSS cho Lỗ hổng con (Child Card) */
-.child-vuln-card {
-    border-left: 4px solid var(--bs-secondary);
-    margin-bottom: 1rem;
-    border-radius: 0.25rem;
-    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
-}
-.child-vuln-card.critical { border-left-color: #dc3545; }
-.child-vuln-card.high { border-left-color: #dc3545; }
-.child-vuln-card.medium { border-left-color: #ffc107; }
-.child-vuln-card.low { border-left-color: #0d6efd; }
-.child-vuln-card.info { border-left-color: #6c757d; }
-</style>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // --- UTILITY FUNCTIONS ---
-    function escapeHtml(text) {
-        if (text === null || text === undefined) return '';
-        return String(text)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
-
-    function slugify(text) {
-        return text.toString().toLowerCase()
-            .replace(/\s+/g, '-')
-            .replace(/[^\w\-]+/g, '')
-            .replace(/\-\-+/g, '-')
-            .replace(/^-+/, '')
-            .replace(/-+$/, '');
-    }
-
-    const severityMap = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0 };
-    const revSeverityMap = { 4: 'Critical', 3: 'High', 2: 'Medium', 1: 'Low', 0: 'Info' };
-
-    function getSeverityBadgeClass(severity) {
-        const s = severity.toLowerCase();
-        if (s === 'critical' || s === 'high') return 'text-bg-danger';
-        if (s === 'medium') return 'text-bg-warning';
-        if (s === 'low') return 'text-bg-primary';
-        return 'text-bg-secondary';
-    }
-
-    function getSeverityBorderClass(severity) {
-        const s = severity.toLowerCase();
-        if (s === 'critical' || s === 'high') return 'border-danger';
-        if (s === 'medium') return 'border-warning';
-        if (s === 'low') return 'border-primary';
-        return 'border-secondary';
-    }
-
-    // --- GROUPING LOGIC ---
-    function determineGroupName(vulnType) {
-        const t = vulnType.toLowerCase();
-        // Nhóm SSL/TLS
-        if (t.includes('ssl') || t.includes('tls') || t.includes('cipher') || t.includes('certificate')) return "SSL/TLS Security Issues";
-        // Nhóm XSS
-        if (t.includes('xss') || t.includes('cross-site scripting')) return "Cross-Site Scripting (XSS)";
-        // Nhóm SQLi
-        if (t.includes('sql')) return "SQL Injection";
-        // Nhóm Leak/Exposure
-        if (t.includes('exposure') || t.includes('leak') || t.includes('disclosure')) return "Sensitive Information Exposure";
-        // Nhóm Config
-        if (t.includes('header') || t.includes('misconfiguration')) return "Security Misconfiguration";
-        // Mặc định: Lấy chính tên type
-        return vulnType;
-    }
-
-    // --- GLOBAL TRACKING ---
-    const activeGroups = {}; // Trạng thái của các Nhóm: { 'ssl-tls-issues': { count: 1, maxSevVal: 2 } }
-
     async function triggerAiRemediation(vulnId) {
         const btn = document.getElementById(`btn-ai-${vulnId}`);
         const contentArea = document.getElementById(`ai-content-${vulnId}`);
@@ -386,7 +266,7 @@
                 const safeExplanation = escapeHtml(data.explanation);
 
                 contentArea.innerHTML = `
-                    <div class="p-3 bg-body-tertiary rounded border border-success text-start">
+                    <div class="p-3 bg-body-tertiary rounded border border-success text-start mt-3">
                         <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
                         <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
 
@@ -411,6 +291,16 @@
         }
     }
 
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         const scanId = {{ scan.id }};
         const eventSource = new EventSource(`/stream/${scanId}`);
@@ -423,152 +313,163 @@
         const loadingState = document.getElementById('loading-state');
         const noVulnsFoundMessage = document.getElementById('no-vulns-found');
 
-        let totalVulnCount = 0;
+        let vulnerabilityCount = 0;
+        const groupState = {};
+
+        const severityValues = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0 };
 
         function updateStatusBadge(status) {
             statusBadge.textContent = status;
             statusBadge.className = 'badge';
-            if (status === 'COMPLETED') statusBadge.classList.add('text-bg-success');
-            else if (status === 'RUNNING') statusBadge.classList.add('text-bg-info');
-            else if (status === 'PENDING') statusBadge.classList.add('text-bg-secondary');
-            else if (status === 'FAILED') statusBadge.classList.add('text-bg-danger');
+            if (status === 'COMPLETED') {
+                statusBadge.classList.add('text-bg-success');
+            } else if (status === 'RUNNING') {
+                statusBadge.classList.add('text-bg-info');
+            } else if (status === 'PENDING') {
+                statusBadge.classList.add('text-bg-secondary');
+            } else if (status === 'FAILED') {
+                statusBadge.classList.add('text-bg-danger');
+            }
         }
 
-        function processVulnerability(vuln) {
-            totalVulnCount++;
-            loadingState.classList.add('d-none');
+        function getSeverityBadgeClass(severity) {
+            switch (severity.toLowerCase()) {
+                case 'critical': return 'text-bg-danger';
+                case 'high': return 'text-bg-danger';
+                case 'medium': return 'text-bg-warning';
+                case 'low': return 'text-bg-primary';
+                default: return 'text-bg-secondary';
+            }
+        }
 
-            const groupName = determineGroupName(vuln.type);
-            const groupId = 'group-' + slugify(groupName);
-            const sevVal = severityMap[vuln.severity.toLowerCase()] || 0;
+        function getGroupName(vulnType) {
+            const typeLower = vulnType.toLowerCase();
+            if (typeLower.includes('ssl') || typeLower.includes('tls') || typeLower.includes('certificate')) return "SSL/TLS Configuration Issues";
+            if (typeLower.includes('cookie') || typeLower.includes('session')) return "Session & Cookie Management";
+            if (typeLower.includes('header') || typeLower.includes('clickjacking') || typeLower.includes('csp')) return "Missing Security Headers";
+            if (typeLower.includes('sql injection') || typeLower.includes('sqli')) return "SQL Injection";
+            if (typeLower.includes('xss') || typeLower.includes('cross-site scripting')) return "Cross-Site Scripting (XSS)";
+            if (typeLower.includes('outdated') || typeLower.includes('known vulnerabilities') || typeLower.includes('component')) return "Vulnerable/Outdated Components";
+            if (typeLower.includes('exposure') || typeLower.includes('leak') || typeLower.includes('information')) return "Sensitive Information Exposure";
+            if (typeLower.includes('access control') || typeLower.includes('privilege') || typeLower.includes('idor')) return "Broken Access Control";
+            if (typeLower.includes('csrf') || typeLower.includes('forgery')) return "Cross-Site Request Forgery (CSRF)";
+            return vulnType;
+        }
 
-            // 1. Nếu Nhóm (Parent) chưa tồn tại -> Tạo Nhóm
-            if (!activeGroups[groupId]) {
-                activeGroups[groupId] = { count: 0, maxSevVal: -1 };
+        function getGroupId(groupName) {
+            return 'group-' + groupName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+        }
 
-                const parentHtml = `
-                    <div class="accordion-item" id="${groupId}-container">
-                        <h2 class="accordion-header vuln-group-header" id="heading-${groupId}">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${groupId}">
-                                <span id="badge-${groupId}" class="badge text-bg-secondary me-2">Loading...</span>
-                                <span class="fw-bold fs-5">${groupName}</span>
-                                <span id="count-${groupId}" class="badge rounded-pill text-bg-dark ms-auto me-3">1 Issues</span>
+        function getHighestSeverity(sev1, sev2) {
+            const val1 = severityValues[sev1.toLowerCase()] || 0;
+            const val2 = severityValues[sev2.toLowerCase()] || 0;
+            return val1 > val2 ? sev1 : sev2;
+        }
+
+        function createOrUpdateGroup(groupName, severity) {
+            const groupId = getGroupId(groupName);
+
+            if (!groupState[groupId]) {
+                groupState[groupId] = {
+                    count: 0,
+                    highestSeverity: severity
+                };
+
+                const groupHtml = `
+                    <div class="accordion-item border border-2 mb-3 rounded" style="overflow: hidden;" id="item-${groupId}">
+                        <h2 class="accordion-header" id="heading-${groupId}">
+                            <button class="accordion-button collapsed fw-bold fs-5 bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${groupId}">
+                                <span id="badge-${groupId}" class="badge ${getSeverityBadgeClass(severity)} me-3">${severity}</span>
+                                ${groupName}
+                                <span class="badge bg-secondary ms-2 rounded-pill" id="count-${groupId}">1 issue</span>
                             </button>
                         </h2>
                         <div id="collapse-${groupId}" class="accordion-collapse collapse" data-bs-parent="#vulnerabilities-accordion">
-                            <div class="accordion-body bg-light" id="children-${groupId}">
-                                <!-- Các lỗi con sẽ được nhét vào đây -->
+                            <div class="accordion-body bg-body-tertiary p-3" id="body-${groupId}">
+                                <!-- Child vulns go here -->
                             </div>
                         </div>
                     </div>
                 `;
-                accordion.insertAdjacentHTML('beforeend', parentHtml);
+                accordion.insertAdjacentHTML('beforeend', groupHtml);
+            } else {
+                const state = groupState[groupId];
+                state.highestSeverity = getHighestSeverity(state.highestSeverity, severity);
+
+                const badgeEl = document.getElementById(`badge-${groupId}`);
+                badgeEl.textContent = state.highestSeverity;
+                badgeEl.className = `badge ${getSeverityBadgeClass(state.highestSeverity)} me-3`;
             }
 
-            // 2. Cập nhật thông số Nhóm (Số lượng & Mức độ nghiêm trọng cao nhất)
-            activeGroups[groupId].count++;
-            if (sevVal > activeGroups[groupId].maxSevVal) {
-                activeGroups[groupId].maxSevVal = sevVal;
-            }
+            groupState[groupId].count++;
+            document.getElementById(`count-${groupId}`).textContent = `${groupState[groupId].count} issue${groupState[groupId].count > 1 ? 's' : ''}`;
 
-            // Render lại Badge của Parent
-            const currentMaxSevStr = revSeverityMap[activeGroups[groupId].maxSevVal];
-            const badgeEl = document.getElementById(`badge-${groupId}`);
-            badgeEl.className = `badge ${getSeverityBadgeClass(currentMaxSevStr)} me-3`;
-            badgeEl.textContent = currentMaxSevStr;
+            return groupId;
+        }
 
-            document.getElementById(`count-${groupId}`).textContent = `${activeGroups[groupId].count} Issues`;
-
-            // 3. Chuẩn bị HTML cho Lỗi con (Child Item)
+        function createVulnerabilityCard(vuln, groupId) {
             let details = vuln.details;
             if (typeof details === 'string') {
                 try { details = JSON.parse(details); } catch (e) { details = {}; }
             }
 
-            // Các Badge
-            let cvssBadge = vuln.cvss_score ? `<span class="badge bg-dark border border-secondary text-light me-2">CVSS: ${vuln.cvss_score}</span>` : '';
-            let cweBadge = (vuln.cwe && vuln.cwe !== 'N/A') ? `<span class="badge text-bg-secondary me-2">${vuln.cwe.split(':')[0]}</span>` : '';
+            let cvssBadge = '';
+            let cweBadge = '';
+            if (vuln.cvss_score) cvssBadge = `<span class="badge bg-dark border border-secondary text-light me-2" title="${vuln.cvss_vector || ''}">CVSS v4.0: ${vuln.cvss_score}</span>`;
+            if (vuln.cwe && vuln.cwe !== 'N/A') cweBadge = `<span class="badge text-bg-secondary me-2">${vuln.cwe.split(':')[0]}</span>`;
 
-            // Tab AI
             const ai_suggestion = details.ai_suggestion;
-            let aiTabNav = `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="ai-tab-btn-${vuln.id}" data-bs-toggle="tab" data-bs-target="#ai-tab-${vuln.id}" type="button" role="tab">
-                        <i class="bi bi-stars text-warning me-1"></i>AI Remediation
-                    </button>
-                </li>`;
+            let aiSection = '';
 
-            let aiTabContent = '';
             if (ai_suggestion && ai_suggestion.explanation) {
-                aiTabContent = `
-                <div class="tab-pane fade" id="ai-tab-${vuln.id}" role="tabpanel">
-                    <div class="mt-3 p-3 bg-body-tertiary rounded border border-success">
-                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
-                        <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${escapeHtml(ai_suggestion.explanation)}</p>
-                        <div class="terminal-window">
-                            <div class="terminal-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="title">fix.patch</span></div>
-                            <pre class="terminal-body"><code>${escapeHtml(ai_suggestion.fixed_code)}</code></pre>
-                        </div>
-                    </div>
-                </div>`;
+                const safeFixedCode = escapeHtml(ai_suggestion.fixed_code);
+                const safeExplanation = escapeHtml(ai_suggestion.explanation);
+                aiSection = `
+                    <div class="mt-3 p-3 bg-white rounded border border-success border-start-0 border-end-0 border-bottom-0">
+                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>AI Analysis Complete</h6>
+                        <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
+                        <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
+                        <div class="terminal-window"><div class="terminal-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="title">secure_code.patch</span></div><pre class="terminal-body"><code>${safeFixedCode}</code></pre></div>
+                    </div>`;
             } else {
-                aiTabContent = `
-                <div class="tab-pane fade" id="ai-tab-${vuln.id}" role="tabpanel">
-                    <div class="mt-4 text-center" id="ai-content-${vuln.id}">
-                        <p class="text-muted mb-3"><i class="bi bi-magic fs-4 d-block mb-2"></i> Use DeepSeek AI to analyze this specific vulnerability.</p>
-                        <button id="btn-ai-${vuln.id}" class="btn btn-outline-primary btn-sm" onclick="triggerAiRemediation(${vuln.id})">
-                            <i class="bi bi-cpu"></i> Generate Fix
+                aiSection = `
+                    <div class="mt-3 pt-3 border-top text-end" id="ai-content-${vuln.id}">
+                        <button id="btn-ai-${vuln.id}" class="btn btn-sm btn-outline-primary" onclick="triggerAiRemediation(${vuln.id})">
+                            <i class="bi bi-magic"></i> Generate AI Fix
                         </button>
-                    </div>
-                </div>`;
+                    </div>`;
             }
 
-            // Danh sách Details
-            let detailsHtml = '<ul class="list-group list-group-flush small">';
+            let detailsHtml = '<table class="table table-sm table-bordered mt-3" style="font-size: 0.9em;"><tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
                     if (key === 'ai_suggestion') continue;
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
-                    detailsHtml += `<li class="list-group-item bg-transparent"><strong>${key}:</strong> <code class="text-break" style="white-space: pre-wrap;">${escapeHtml(displayValue)}</code></li>`;
+                    detailsHtml += `<tr><th scope="row" style="width: 25%; background-color: rgba(0,0,0,0.03);">${key}</th><td><code class="text-break" style="white-space: pre-wrap; color: var(--bs-body-color);">${escapeHtml(displayValue)}</code></td></tr>`;
                 }
             } else {
-                 detailsHtml += `<li class="list-group-item bg-transparent"><code>${escapeHtml(details)}</code></li>`;
+                 detailsHtml += `<tr><td><code>${escapeHtml(details)}</code></td></tr>`;
             }
-            detailsHtml += '</ul>';
+            detailsHtml += '</tbody></table>';
 
-            // HTML của Child Card
-            const childCardClass = `child-vuln-card ${vuln.severity.toLowerCase()} card mb-3`;
-            const childHtml = `
-                <div class="${childCardClass}">
-                    <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
-                        <div>
-                            <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2">${vuln.severity}</span>
-                            <strong>${vuln.type}</strong>
-                        </div>
-                        <div class="text-end">
-                            ${cweBadge} ${cvssBadge}
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="p-3 pb-0 border-bottom border-light">
-                            <div class="mb-2"><span class="text-muted">Target URL:</span> <a href="${vuln.url}" target="_blank" class="text-decoration-none text-break">${vuln.url}</a></div>
-                            ${vuln.subcategory ? `<div class="mb-2"><span class="text-muted">Info:</span> ${vuln.subcategory}</div>` : ''}
-                        </div>
-
-                        <ul class="nav nav-tabs px-3 pt-2 bg-light border-bottom-0" role="tablist">
-                            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#details-pane-${vuln.id}">Technical Details</button></li>
-                            ${aiTabNav}
-                        </ul>
-                        <div class="tab-content p-3">
-                            <div class="tab-pane fade show active" id="details-pane-${vuln.id}">${detailsHtml}</div>
-                            ${aiTabContent}
-                        </div>
+            const cardHtml = `
+                <div class="card mb-3 shadow-sm border-0 border-start border-4 ${getSeverityBadgeClass(vuln.severity).replace('text-bg-', 'border-')}">
+                    <div class="card-body">
+                        <h5 class="card-title d-flex align-items-center mb-1">
+                            ${cvssBadge} ${cweBadge}
+                            <span class="ms-1">${vuln.type}</span>
+                        </h5>
+                        <h6 class="card-subtitle mb-3 text-muted" style="font-size: 0.85em;">
+                            ${vuln.subcategory ? `<strong>${vuln.subcategory}</strong> | ` : ''}
+                            <a href="${vuln.url}" target="_blank" class="text-decoration-none text-muted"><i class="bi bi-link-45deg"></i> ${vuln.url}</a>
+                        </h6>
+                        ${detailsHtml}
+                        ${aiSection}
                     </div>
                 </div>
             `;
 
-            // 4. Chèn Child vào trong Parent
-            document.getElementById(`children-${groupId}`).insertAdjacentHTML('beforeend', childHtml);
+            document.getElementById(`body-${groupId}`).insertAdjacentHTML('beforeend', cardHtml);
         }
 
         eventSource.onmessage = function (event) {
@@ -578,25 +479,14 @@
             progressMessage.textContent = data.progress_message || '...';
 
             if(data.new_vulnerabilities) {
-                // Thay vì gọi hàm tạo Accordion cũ, gọi hàm xử lý Nhóm mới
-                data.new_vulnerabilities.forEach(processVulnerability);
-            }
+                data.new_vulnerabilities.forEach(vuln => {
+                    vulnerabilityCount++;
+                    loadingState.classList.add('d-none');
 
-            // Phần AI Summary giữ nguyên
-            if (data.ai_analysis) {
-                const aiSec = document.getElementById('ai-summary-section');
-                const analysis = data.ai_analysis;
-                aiSec.classList.remove('d-none');
-                document.getElementById('ai-risk-score').innerText = analysis.risk_score || 'N/A';
-                document.getElementById('ai-exec-summary').innerText = analysis.executive_summary || '';
-                document.getElementById('ai-strategy').innerText = analysis.strategic_recommendations || '';
-                const priorityList = document.getElementById('ai-priorities');
-                priorityList.innerHTML = '';
-                if (analysis.top_priorities && Array.isArray(analysis.top_priorities)) {
-                    analysis.top_priorities.forEach(item => {
-                        priorityList.innerHTML += `<li class="mb-2"><i class="bi bi-caret-right-fill text-warning me-2"></i>${item}</li>`;
-                    });
-                }
+                    const groupName = getGroupName(vuln.type);
+                    const groupId = createOrUpdateGroup(groupName, vuln.severity);
+                    createVulnerabilityCard(vuln, groupId);
+                });
             }
 
             if (data.status === 'RUNNING') {
@@ -611,8 +501,8 @@
                 if (data.status === 'COMPLETED') {
                     progressBar.classList.remove('bg-info');
                     progressBar.classList.add('bg-success');
-                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${totalVulnCount} app vulnerabilities.`;
-                    if (totalVulnCount === 0) {
+                    progressMessage.textContent = `Scan finished at ${data.end_time}. Found ${vulnerabilityCount} issues.`;
+                    if (vulnerabilityCount === 0) {
                         loadingState.classList.add('d-none');
                         noVulnsFoundMessage.classList.remove('d-none');
                     }
@@ -621,13 +511,15 @@
                      progressBar.classList.add('bg-danger');
                      progressMessage.textContent = `Scan failed at ${data.end_time}. Check logs for details.`;
                 }
+
                 eventSource.close();
             }
         };
 
         eventSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
             updateStatusBadge('ERROR');
-            progressMessage.textContent = 'Connection to server lost.';
+            progressMessage.textContent = 'Connection to server lost. Please refresh.';
             eventSource.close();
         };
 
