@@ -20,7 +20,6 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
-from integrations.ai_remediator import generate_overall_analysis
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -97,10 +96,6 @@ def run_scan_task(scan_id: int):
         if not check_host_alive(scan.target_url, scan.auth_cookies):
             print(f"[Scan ID: {scan_id}] ERROR: Host is unreachable or down. Aborting scan.", flush=True)
             scan.status = 'FAILED'
-            scan.ai_analysis = json.dumps({
-                "executive_summary": "Scan aborted because the target host did not respond.",
-                "risk_score": 0, "top_priorities": ["Check if the URL is correct", "Ensure the server is running"]
-            })
             scan.end_time = datetime.now(timezone.utc)
             db.session.commit()
             return
@@ -171,6 +166,8 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(port_info)))
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
+                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
+                              flush=True)
                         vulns = audit_service_version(product, version)
                         if vulns:
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
@@ -286,21 +283,6 @@ def run_scan_task(scan_id: int):
                 pre_crawled_urls=scraped_urls
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
-
-            scan = db.session.get(Scan, scan_id)
-            if bool(scan.recon_findings) or bool(scan.vulnerabilities):
-                vuln_summary = [{'type': v.type, 'severity': v.severity} for v in scan.vulnerabilities]
-                for rf in scan.recon_findings:
-                    if rf.tool == 'wafw00f':
-                        vuln_summary.append(
-                            {'type': f"WAF: {rf.get_details_as_dict().get('firewall', 'Unknown')}", 'severity': 'Info'})
-                    elif rf.tool == 'nmap-vuln':
-                        vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
-
-                analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
-                if analysis_result:
-                    scan.ai_analysis = json.dumps(analysis_result, indent=2)
-                    db.session.commit()
 
             scan.status = 'COMPLETED'
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)

@@ -1,14 +1,12 @@
-# integrations/nuclei_scanner.py
 import json
 import tempfile
 import os
-import yaml  # THÊM IMPORT NÀY
+import yaml
 from .tool_runner import run_command, is_tool_installed
 
 templates_updated = False
 
 
-# --- HÀM MỚI: Đọc cấu hình Nuclei ---
 def load_nuclei_config():
     try:
         with open('config/nucleiconfig.yml', 'r', encoding='utf-8') as f:
@@ -19,13 +17,9 @@ def load_nuclei_config():
 
 
 def run_nuclei(target: str) -> list:
-    """
-    Chạy Nuclei scanner với cấu hình từ nucleiconfig.yml.
-    """
     global templates_updated
     findings = []
 
-    # Đọc cấu hình từ file
     config = load_nuclei_config()
 
     if not is_tool_installed('nuclei'):
@@ -49,7 +43,7 @@ def run_nuclei(target: str) -> list:
 
     tags = config.get('tags', [])
     if tags:
-        command.extend(['-t', ','.join(tags)])
+        command.extend(['-tags', ','.join(tags)])
 
     rate_limit = config.get('rate_limit')
     if rate_limit:

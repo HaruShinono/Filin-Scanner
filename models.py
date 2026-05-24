@@ -12,7 +12,6 @@ class Scan(db.Model):
     status = db.Column(db.String(50), default='PENDING', nullable=False)
     start_time = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     end_time = db.Column(db.DateTime, nullable=True)
-    ai_analysis = db.Column(db.Text, nullable=True)
     auth_cookies = db.Column(db.Text, nullable=True)
     site_tree = db.Column(db.Text, nullable=True)
 
@@ -42,7 +41,6 @@ class Scan(db.Model):
             'start_time': self.start_time.isoformat(),
             'end_time': self.end_time.isoformat() if self.end_time else None,
             'vulnerability_count': len(self.vulnerabilities),
-            'ai_analysis': json.loads(self.ai_analysis) if self.ai_analysis else None,
             'site_tree': json.loads(self.site_tree) if self.site_tree else {}
         }
 
