@@ -1,3 +1,252 @@
+{% extends 'layout.html' %}
+
+{% block title %}Scan #{{ scan.id }} - {{ scan.target_url }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-0">Scan Details</h1>
+            <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
+        </div>
+        <div>
+            <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
+                <i class="bi bi-file-earmark-pdf"></i> Export PDF
+            </a>
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <div class="card bg-body-secondary mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-5">
+                    <strong>Target:</strong>
+                    <p class="font-monospace mb-0">{{ scan.target_url }}</p>
+                </div>
+                <div class="col-md-2">
+                    <strong>Mode:</strong>
+                    <p class="mb-0"><span class="badge text-bg-secondary">{{ scan.scan_mode | upper }}</span></p>
+                </div>
+                <div class="col-md-3">
+                    <strong>Started:</strong>
+                    <p id="start-time" class="mb-0">{{ scan.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="col-md-2">
+                    <strong>Status:</strong>
+                    <p class="mb-0"><span id="scan-status-badge" class="badge">Loading...</span></p>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col">
+                    <strong>Progress:</strong>
+                    <div id="progress-container" class="progress" role="progressbar" aria-label="Scan progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                    </div>
+                    <small id="progress-message" class="text-body-secondary mt-1 d-block">Initializing scan...</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if scan.site_tree %}
+    <h3 class="mb-3 mt-4">Site Structure (Crawled Map)</h3>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body bg-light" style="max-height: 400px; overflow-y: auto; font-family: monospace;">
+            <i class="bi bi-globe me-2 text-primary"></i> <strong>{{ scan.target_url }}</strong>
+
+            {% macro render_tree(tree_node) %}
+                <ul class="list-unstyled ms-4 mt-1 border-start ps-3 border-secondary-subtle">
+                {% for key, child in tree_node.items() %}
+                    <li>
+                        {% if child %}
+                            <i class="bi bi-folder-fill text-warning me-1"></i> {{ key }}/
+                            {{ render_tree(child) }}
+                        {% else %}
+                            <i class="bi bi-file-earmark-text text-secondary me-1"></i> {{ key }}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% endmacro %}
+
+            {{ render_tree(scan.to_dict().get('site_tree', {})) }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if scan.recon_findings %}
+
+    {% set vulnerable_ports = [] %}
+    {% for finding in scan.recon_findings %}
+        {% if finding.tool == 'nmap-vuln' %}
+            {% set _ = vulnerable_ports.append(finding.get_details_as_dict().port) %}
+        {% endif %}
+    {% endfor %}
+
+    <h3 class="mb-3">Reconnaissance Findings</h3>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-hdd-network me-2"></i> Infrastructure & Ports
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for finding in scan.recon_findings %}
+                            {% set details = finding.get_details_as_dict() %}
+
+                            {% if finding.tool == 'wafw00f' %}
+                                <li class="list-group-item bg-danger-subtle border-start border-danger border-4">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <span class="text-danger fw-bold"><i class="bi bi-fire me-2"></i>WAF Detected</span>
+                                        <span class="badge text-bg-danger">{{ details.firewall }}</span>
+                                    </div>
+                                    <small class="text-muted">Manufacturer: {{ details.manufacturer }}</small>
+                                </li>
+
+                            {% elif finding.tool == 'nmap' %}
+                                {% set is_vuln = details.port in vulnerable_ports %}
+
+                                <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
+                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                        <div class="d-flex align-items-center">
+                                            <span class="badge bg-dark me-2" style="min-width: 60px;">{{ details.port }}/{{ details.protocol }}</span>
+                                            <span class="fw-bold text-primary">{{ details.service_name | upper }}</span>
+                                        </div>
+
+                                        {% if is_vuln %}
+                                            <span class="badge bg-danger animate-pulse">
+                                                <i class="bi bi-exclamation-triangle-fill"></i> VULN
+                                            </span>
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="small text-muted ms-1">
+                                        {% if details.display_string and details.display_string != details.service_name %}
+                                            <i class="bi bi-info-circle me-1" style="font-size: 0.8rem;"></i>
+                                            {{ details.display_string }}
+                                        {% else %}
+                                            <span class="fst-italic opacity-50">No version info</span>
+                                        {% endif %}
+                                    </div>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if not scan.recon_findings | selectattr('tool', 'in', ['wafw00f', 'nmap']) | list %}
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No infrastructure data found.</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-globe me-2"></i> DNS Records
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% set dns_findings = scan.recon_findings | selectattr('tool', 'equalto', 'dnsrecon') | list %}
+
+                        {% for finding in dns_findings %}
+                            {% set details = finding.get_details_as_dict() %}
+                            <li class="list-group-item">
+                                <div class="row align-items-center">
+                                    <div class="col-3">
+                                        <span class="badge text-bg-info w-100">{{ details.type }}</span>
+                                    </div>
+                                    <div class="col-9 font-monospace text-break" style="font-size: 0.85em;">
+                                        {% if details.type in ['A', 'AAAA'] %}
+                                            {{ details.address }}
+                                        {% elif details.type in ['NS', 'MX', 'CNAME'] %}
+                                            {{ details.target }}
+                                        {% elif details.type == 'TXT' %}
+                                            {{ details.strings }}
+                                        {% elif details.type == 'SOA' %}
+                                            {{ details.mname }}
+                                        {% else %}
+                                            {{ details }}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </li>
+                        {% endfor %}
+
+                        {% if not dns_findings %}
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No DNS records found.</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
+    {% if nmap_vulns %}
+    <div class="card border-danger mb-4 shadow">
+        <div class="card-header text-bg-danger d-flex align-items-center">
+            <i class="bi bi-radioactive fs-4 me-2"></i>
+            <h5 class="mb-0">Critical Infrastructure Vulnerabilities (Nmap NSE)</h5>
+        </div>
+        <div class="card-body p-0 bg-light">
+            <div class="accordion accordion-flush" id="nmapVulnAccordion">
+                {% for finding in nmap_vulns %}
+                    {% set details = finding.get_details_as_dict() %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingNmap{{ finding.id }}">
+                            <button class="accordion-button collapsed fw-bold text-danger" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
+                                <span class="badge bg-danger me-2">PORT {{ details.port }}</span>
+                                <span class="font-monospace">{{ finding.finding_type | replace('NSE: ', '') }}</span>
+                            </button>
+                        </h2>
+                        <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
+                            <div class="accordion-body p-0">
+                                <div class="terminal-window">
+                                    <div class="terminal-header">
+                                        <span class="dot red"></span>
+                                        <span class="dot yellow"></span>
+                                        <span class="dot green"></span>
+                                        <span class="title">nmap output</span>
+                                    </div>
+                                    <pre class="terminal-body"><code>{{ details.output }}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <h3 class="mb-3">Application Vulnerabilities</h3>
+    <div id="vulnerabilities-accordion" class="accordion shadow-sm">
+
+        <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-body-secondary">Scanning & Analyzing...</p>
+        </div>
+
+        <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
+             <i class="bi bi-shield-check fs-3"></i>
+             <h4 class="alert-heading mt-2">Scan Complete</h4>
+             <p>No application-level vulnerabilities were detected.</p>
+        </div>
+    </div>
+
+    <div class="mb-5"></div>
+</div>
+{% endblock %}
+
 {% block scripts %}
 <script>
     // Hàm gọi AI Remediation cho Nhóm Lớn
