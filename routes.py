@@ -24,7 +24,6 @@ def dashboard():
 
 @main_routes.route('/scan/new', methods=['POST'])
 def new_scan():
-    # Lấy dữ liệu từ form
     target_url = request.form.get('target_url')
     auth_cookies = request.form.get('auth_cookies')
     scan_mode = request.form.get('scan_mode', 'full')
@@ -34,20 +33,14 @@ def new_scan():
 
     target_url = target_url.strip()
 
-    # --- TỰ ĐỘNG LÀM SẠCH URL ---
-    # Thêm http:// nếu người dùng quên nhập
+    # Chỉ thêm http:// nếu thiếu, GIỮ NGUYÊN TOÀN BỘ URL BAO GỒM CẢ DẤU #
+    from urllib.parse import urlparse
     parsed_url = urlparse(target_url)
     if not parsed_url.scheme:
         target_url = "http://" + target_url
-        parsed_url = urlparse(target_url)
 
-    # Loại bỏ fragment (ví dụ: #/login của Juice Shop/Angular)
-    clean_url = urlunparse(parsed_url._replace(fragment=""))
-    # -----------------------------
-
-    # Lưu vào database
     new_scan_obj = Scan(
-        target_url=clean_url,
+        target_url=target_url, # Dùng thẳng target_url
         scan_mode=scan_mode,
         status='PENDING',
         auth_cookies=auth_cookies.strip() if auth_cookies else None
@@ -55,10 +48,8 @@ def new_scan():
     db.session.add(new_scan_obj)
     db.session.commit()
 
-    # Gọi background worker
     executor.submit(run_scan_task, new_scan_obj.id)
     return redirect(url_for('main.scan_details', scan_id=new_scan_obj.id))
-
 
 @main_routes.route('/api/remediate/<int:vuln_id>', methods=['POST'])
 def api_remediate(vuln_id):
