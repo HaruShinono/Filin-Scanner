@@ -128,7 +128,7 @@ class Scanner:
 
     def _normalize_url(self, url: str) -> str:
         parsed = urlparse(url)
-        return urlunparse(parsed._replace(fragment=""))
+        return urlunparse(parsed)
 
     def _is_valid_url(self, url: str) -> bool:
         parsed = urlparse(url)
