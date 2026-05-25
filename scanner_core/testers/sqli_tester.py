@@ -108,17 +108,14 @@ class SqliTester(BaseTester):
 
         try:
             if method == 'GET':
-                # Nếu Form GET (như form Search), ta đẩy data vào URL params
                 return self.session.get(url, params=data, timeout=15, verify=False, headers=headers)
 
+            # [QUAN TRỌNG] Nếu là API, phải gửi json=data để thư viện requests tự động set Content-Type: application/json
             if is_api:
-                # Nếu là API, bắt buộc gửi bằng JSON
-                headers['Content-Type'] = 'application/json'
                 if method == 'PUT':
                     return self.session.put(url, json=data, timeout=15, verify=False, headers=headers)
                 return self.session.post(url, json=data, timeout=15, verify=False, headers=headers)
             else:
-                # Nếu là form truyền thống, gửi x-www-form-urlencoded
                 return self.session.post(url, data=data, timeout=15, verify=False, headers=headers)
         except Exception:
             return None

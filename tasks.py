@@ -20,7 +20,7 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
-from integrations.ai_remediator import generate_overall_analysis
+from integrations.dynamic_crawler import DynamicCrawler
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -41,15 +41,10 @@ def get_kb_info(vuln_type):
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     GLOBAL_VULN_TYPES = [
-        'Cryptographic Failure',
-        'Security Misconfiguration',
-        'Security Logging and Monitoring Failure',
-        'Outdated Service Component',
-        'Using Components with Known Vulnerabilities',
-        'Software and Data Integrity Failure',
-        'Sensitive Data Exposure',
-        'Cross-Site Request Forgery (CSRF)',
-        'CSRF'
+        'Cryptographic Failure', 'Security Misconfiguration', 'Security Logging and Monitoring Failure',
+        'Outdated Service Component', 'Using Components with Known Vulnerabilities',
+        'Software and Data Integrity Failure', 'Sensitive Data Exposure',
+        'Cross-Site Request Forgery (CSRF)', 'CSRF'
     ]
 
     parsed = urlparse(vuln.url)
@@ -83,7 +78,8 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
 def check_host_alive(url: str, cookies: str = None) -> bool:
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'ngrok-skip-browser-warning': 'true'
     }
     cookie_dict = {}
     if cookies:
@@ -155,11 +151,20 @@ def run_scan_task(scan_id: int):
                 if os.path.exists(out_file):
                     os.remove(out_file)
 
+                print(f"[Scan ID: {scan_id}] Running Dynamic Browser Crawler (Selenium + Network Sniffing)...",
+                      flush=True)
+                dyn_crawler = DynamicCrawler(scan.target_url, scan.auth_cookies)
+                hidden_apis = dyn_crawler.crawl()
+
+                if hidden_apis:
+                    scraped_forms.extend(hidden_apis)
+
                 site_tree = build_site_tree(list(scraped_urls))
                 scan.site_tree = json.dumps(site_tree)
                 scan.discovered_forms = json.dumps(scraped_forms)
                 db.session.commit()
-                print(f"  [Scrapy] Found {len(scraped_urls)} URLs and {len(scraped_forms)} Forms.", flush=True)
+                print(f"  [Discovery] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
+                      flush=True)
             else:
                 scraped_urls.add(scan.target_url)
 
@@ -188,6 +193,8 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(port_info)))
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
+                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
+                              flush=True)
                         vulns = audit_service_version(product, version)
                         if vulns:
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
@@ -281,6 +288,8 @@ def run_scan_task(scan_id: int):
                     v_hash = _generate_dedup_hash(vuln)
                     if v_hash in seen_vuln_hashes: return
 
+                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
+
                     kb_info = get_kb_info(vuln.type)
                     cvss_vector = vuln.cvss_vector or kb_info.get('cvss_vector')
                     cvss_score, severity = vuln.cvss_score, vuln.severity
@@ -309,8 +318,12 @@ def run_scan_task(scan_id: int):
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)
 
         except Exception as e:
+            print(f"Scan ID: {scan_id} for target {scan.target_url} failed.", flush=True)
+            print(f"Error details: {e}", flush=True)
             traceback.print_exc()
+
             db.session.rollback()
+
             scan = db.session.get(Scan, scan_id)
             if scan: scan.status = 'FAILED'
 
