@@ -21,11 +21,11 @@
         <div class="card-body">
             <form action="{{ url_for('main.new_scan') }}" method="POST">
                 <div class="mb-3">
-                    <label for="target_url" class="form-label fw-bold">Target URL</label>
-                    <input type="url" class="form-control" id="target_url" name="target_url" placeholder="http://example.com" required>
+                    <label for="target_url" class="form-label fw-bold">Target IP / Domain / URL</label>
+                    <!-- Đã thay đổi type="url" thành type="text" để cho phép nhập IP thô -->
+                    <input type="text" class="form-control" id="target_url" name="target_url" placeholder="e.g. 192.168.1.2:3000 or example.com" required>
                 </div>
-                
-                <!-- [MỚI] CHỌN CHẾ ĐỘ QUÉT -->
+
                 <div class="mb-3">
                     <label class="form-label fw-bold"><i class="bi bi-crosshair"></i> Scan Mode</label>
                     <div class="form-check">
