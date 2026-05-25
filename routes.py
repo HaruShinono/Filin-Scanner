@@ -2,7 +2,7 @@ import json
 import time
 import yaml
 from collections import Counter
-
+from urllib.parse import urlparse, urlunparse
 from flask import (Blueprint, Response, current_app, redirect, render_template,
                    request, url_for, abort, jsonify)
 from weasyprint import HTML
@@ -27,6 +27,14 @@ def new_scan():
 
     if not target_url or not target_url.strip():
         return "Target URL is required!", 400
+    parsed_url = urlparse(raw_url.strip())
+    # Nếu người dùng quên nhập http://
+    if not parsed_url.scheme:
+        raw_url = "http://" + raw_url.strip()
+        parsed_url = urlparse(raw_url)
+
+    # Xóa bỏ fragment (ví dụ: #/login)
+    clean_url = urlunparse(parsed_url._replace(fragment=""))
 
     new_scan_obj = Scan(
         target_url=target_url.strip(),

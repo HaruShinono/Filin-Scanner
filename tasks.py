@@ -69,7 +69,10 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Scanner/1.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    }
     cookie_dict = {}
     if cookies:
         for item in cookies.split(';'):
@@ -77,9 +80,12 @@ def check_host_alive(url: str, cookies: str = None) -> bool:
                 k, v = item.strip().split('=', 1)
                 cookie_dict[k] = v
     try:
-        requests.get(url, headers=headers, cookies=cookie_dict, timeout=10, verify=False)
+        # Thêm allow_redirects=True
+        resp = requests.get(url, headers=headers, cookies=cookie_dict, timeout=10, verify=False, allow_redirects=True)
+        # Server trả lời (dù là 404, 401, 403, 500) nghĩa là host có sống
         return True
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        print(f"Host check failed: {e}", flush=True)
         return False
 
 
