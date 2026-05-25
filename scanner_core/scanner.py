@@ -76,7 +76,8 @@ class Scanner:
             'Accept-Language': 'en-US,en;q=0.5',
             'X-Forwarded-For': spoofed_ip,
             'X-Real-IP': spoofed_ip,
-            'Client-IP': spoofed_ip
+            'Client-IP': spoofed_ip,
+            'ngrok-skip-browser-warning': 'true'
         })
         session.verify = False
         return session

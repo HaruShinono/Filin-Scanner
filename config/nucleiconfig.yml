@@ -38,12 +38,5 @@ tags:
   - "dast"
   - "dast-sqli"
   - "dast-xss"
-
-
-# Giới hạn số request mỗi giây. Giữ ở mức vừa phải để không bị ban IP.
-# Nếu quét localhost, có thể tăng lên 500.
 rate_limit: 150
-
-# [MỚI] Thêm cờ -dast để kích hoạt tính năng Fuzzing động của Nuclei
-# Thêm cờ -as (Automatic Scan) để Nuclei tự nhận diện công nghệ
-extra_args: "-dast -as"
+extra_args: "-dast"
