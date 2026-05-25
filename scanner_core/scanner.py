@@ -88,6 +88,11 @@ class Scanner:
                 if '=' in item:
                     name, value = item.strip().split('=', 1)
                     cookie_dict[name] = value
+
+                    if name.lower() in ['token', 'jwt', 'bearer'] or value.startswith('eyJ'):
+                        self.session.headers.update({'Authorization': f'Bearer {value}'})
+                        logger.info("JWT Token detected. Added Authorization: Bearer header.")
+
             self.session.cookies.update(cookie_dict)
             logger.info(f"Authenticated Scan enabled. Cookies applied: {list(cookie_dict.keys())}")
         except Exception as e:

@@ -55,11 +55,10 @@ class SmartSpider(scrapy.Spider):
         yield {'url': response.url}
 
         body = response.text
-
-        # Regex tìm các REST API phổ biến (phù hợp với cấu trúc Juice Shop)
-        # Bắt các chuỗi như: "/api/Users", "/rest/products/search", "/api/Feedbacks"
-        api_endpoints = re.findall(r'["\'](/(?:api|rest|v1|v2)/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)["\']', body)
+        api_endpoints = re.findall(r'["\'](/(?:api|rest|b2b|assets|ftp)/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)["\']',
+                                   body)
 
         for ep in api_endpoints:
-            # Gửi request tới API endpoint tìm được
-            yield response.follow(ep, self.parse, cookies=self.cookies_dict)
+            # yield ra dạng url đầy đủ để các công cụ khác quét
+            full_api_url = response.urljoin(ep)
+            yield {'url': full_api_url}

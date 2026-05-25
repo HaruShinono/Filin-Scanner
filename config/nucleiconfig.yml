@@ -1,4 +1,3 @@
-
 # Cập nhật cac dữ liệu lỗ hổng mới nhất.
 update_templates: true
 
@@ -36,14 +35,15 @@ tags:
   - "ssrf"
   - "crlf"
   - "prototype-pollution"
+  - "dast"
+  - "dast-sqli"
+  - "dast-xss"
+
 
 # Giới hạn số request mỗi giây. Giữ ở mức vừa phải để không bị ban IP.
 # Nếu quét localhost, có thể tăng lên 500.
 rate_limit: 150
 
-# Các tham số dòng lệnh bổ sung.
-# Xóa '-etags intrusive' để cho phép Nuclei chạy cả các template có khả năng
-# thay đổi dữ liệu (ví dụ: tạo file, tạo user). CẨN THẬN KHI DÙNG!
-# '-no-interactsh': Tắt server OAST (Out-of-Band) của Nuclei để chạy nhanh hơn
-# nếu bạn không tập trung vào các lỗi Blind.
-extra_args: ""
+# [MỚI] Thêm cờ -dast để kích hoạt tính năng Fuzzing động của Nuclei
+# Thêm cờ -as (Automatic Scan) để Nuclei tự nhận diện công nghệ
+extra_args: "-dast -as"
