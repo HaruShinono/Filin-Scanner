@@ -2,7 +2,7 @@ import json
 import time
 import yaml
 from collections import Counter
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse  # Đã thêm import parse URL
 
 from flask import (Blueprint, Response, current_app, redirect, render_template,
                    request, url_for, abort, jsonify)
@@ -15,10 +15,12 @@ from integrations.ai_remediator import generate_remediation
 
 main_routes = Blueprint('main', __name__)
 
+
 @main_routes.route('/')
 def dashboard():
     scans = Scan.query.order_by(Scan.start_time.desc()).all()
     return render_template('dashboard.html', scans=scans)
+
 
 @main_routes.route('/scan/new', methods=['POST'])
 def new_scan():
@@ -31,14 +33,14 @@ def new_scan():
 
     target_url = target_url.strip()
 
-    if not target_url.lower().startswith(('http://', 'https://')):
+    # Chỉ thêm http:// nếu thiếu, GIỮ NGUYÊN TOÀN BỘ URL BAO GỒM CẢ DẤU #
+    from urllib.parse import urlparse
+    parsed_url = urlparse(target_url)
+    if not parsed_url.scheme:
         target_url = "http://" + target_url
 
-    parsed_url = urlparse(target_url)
-    clean_url = urlunparse(parsed_url._replace(fragment=""))
-
     new_scan_obj = Scan(
-        target_url=clean_url,
+        target_url=target_url, # Dùng thẳng target_url
         scan_mode=scan_mode,
         status='PENDING',
         auth_cookies=auth_cookies.strip() if auth_cookies else None
@@ -80,12 +82,14 @@ def api_remediate(vuln_id):
     else:
         return jsonify({"error": "AI failed to generate response"}), 500
 
+
 @main_routes.route('/scan/<int:scan_id>')
 def scan_details(scan_id):
     scan = db.session.get(Scan, scan_id)
     if not scan:
         abort(404)
     return render_template('scan_details.html', scan=scan)
+
 
 @main_routes.route('/scan/<int:scan_id>/delete', methods=['POST'])
 def delete_scan(scan_id):
@@ -94,6 +98,7 @@ def delete_scan(scan_id):
         db.session.delete(scan_to_delete)
         db.session.commit()
     return redirect(url_for('main.dashboard'))
+
 
 @main_routes.route('/scan/<int:scan_id>/report/pdf')
 def export_pdf(scan_id):
@@ -136,6 +141,7 @@ def export_pdf(scan_id):
         }
     )
 
+
 @main_routes.route('/stream/<int:scan_id>')
 def stream(scan_id):
     def event_stream(app):
@@ -157,7 +163,7 @@ def stream(scan_id):
                     'progress_message': f"Scanning... Found {len(sent_vuln_ids)} vulnerabilities so far.",
                     'new_vulnerabilities': new_vulnerabilities,
                     'start_time': scan.start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'end_time': scan.end_time.strftime('%Y-%m-%d %H:%M:%S') if scan.end_time else None
+                    'end_time': scan.end_time.strftime('%Y-%m-%d %H:%M:%S') if scan.end_time else None,
                 }
 
                 status_completed = scan.status in ['COMPLETED', 'FAILED']
