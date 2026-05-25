@@ -5,7 +5,8 @@ from factory import db
 
 class Scan(db.Model):
     __tablename__ = 'scan'
-
+    site_tree = db.Column(db.Text, nullable=True)
+    discovered_forms = db.Column(db.Text, nullable=True)
     id = db.Column(db.Integer, primary_key=True)
     target_url = db.Column(db.String(255), nullable=False)
     scan_mode = db.Column(db.String(20), default='full', nullable=False)
@@ -41,7 +42,8 @@ class Scan(db.Model):
             'start_time': self.start_time.isoformat(),
             'end_time': self.end_time.isoformat() if self.end_time else None,
             'vulnerability_count': len(self.vulnerabilities),
-            'site_tree': json.loads(self.site_tree) if self.site_tree else {}
+            'site_tree': json.loads(self.site_tree) if self.site_tree else {},
+            'discovered_forms': json.loads(self.discovered_forms) if self.discovered_forms else []
         }
 
 

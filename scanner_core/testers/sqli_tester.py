@@ -131,3 +131,63 @@ class SqliTester(BaseTester):
         test_url = urlunparse(parsed_url._replace(query=urlencode(test_params, doseq=True)))
         # Force a fresh request without using the cache for injection attempts
         return self.session.get(test_url, timeout=15, verify=False)
+
+    def test_form(self, form_data: dict) -> Optional[Vulnerability]:
+        """Kiểm tra SQLi trên POST/GET Forms"""
+        if form_data['method'] != 'POST':
+            return None  # Form GET thì URL parameter đã lo rồi
+
+        url = form_data['url']
+        inputs = form_data['inputs']
+
+        # Lấy trang gốc làm baseline so sánh
+        base_resp = self.session.post(url, data={i['name']: i['value'] for i in inputs}, timeout=10, verify=False)
+        if not base_resp: return None
+
+        for target_input in inputs:
+            # Bỏ qua không tiêm payload vào hidden field, submit button, radio
+            if target_input['type'] in ['hidden', 'submit', 'radio', 'checkbox', 'button']:
+                continue
+
+            param = target_input['name']
+
+            # --- BOOLEAN-BASED VERIFICATION TRÊN POST FORM ---
+            true_payload = "' AND 1=1--"
+            false_payload = "' AND 1=2--"
+
+            try:
+                resp_true = self._inject_form_payload(url, inputs, param, true_payload)
+                resp_false = self._inject_form_payload(url, inputs, param, false_payload)
+
+                if resp_true and resp_false:
+                    sim_true = self._calculate_similarity(base_resp.text, resp_true.text)
+                    sim_false = self._calculate_similarity(base_resp.text, resp_false.text)
+
+                    if sim_true > 0.95 and sim_false < 0.90:
+                        return Vulnerability(
+                            type='SQL Injection', subcategory='Boolean-Based (POST Form)', url=url,
+                            details={
+                                'parameter': f"POST Body: {param}", 'true_payload': true_payload,
+                                'false_payload': false_payload,
+                                'evidence': 'Response differs significantly between TRUE and FALSE logic inside POST form.'
+                            },
+                            severity='Critical'
+                        )
+            except requests.RequestException:
+                pass
+
+            # Tương tự, bạn copy logic Error-Based và Time-based từ hàm test() cũ
+            # thay _inject_payload bằng _inject_form_payload
+
+        return None
+
+    def _inject_form_payload(self, url, inputs, target_param, payload):
+        """Build POST body giữ nguyên CSRF tokens, chỉ thay target_param bằng payload"""
+        data = {}
+        for inp in inputs:
+            if inp['name'] == target_param:
+                data[inp['name']] = payload
+            else:
+                data[inp['name']] = inp['value']  # Giữ nguyên value gốc
+
+        return self.session.post(url, data=data, timeout=15, verify=False)

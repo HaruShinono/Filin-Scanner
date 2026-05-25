@@ -20,6 +20,7 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
+from integrations.ai_remediator import generate_overall_analysis
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -39,13 +40,22 @@ def get_kb_info(vuln_type):
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
-    GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
-                         'Security Logging and Monitoring Failure', 'Outdated Service Component',
-                         'Using Components with Known Vulnerabilities', 'Software and Data Integrity Failure',
-                         'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']
+    GLOBAL_VULN_TYPES = [
+        'Cryptographic Failure',
+        'Security Misconfiguration',
+        'Security Logging and Monitoring Failure',
+        'Outdated Service Component',
+        'Using Components with Known Vulnerabilities',
+        'Software and Data Integrity Failure',
+        'Sensitive Data Exposure',
+        'Cross-Site Request Forgery (CSRF)',
+        'CSRF'
+    ]
+
     parsed = urlparse(vuln.url)
     domain = parsed.netloc
     path = parsed.path
+
     details_str = ""
     if isinstance(vuln.details, dict):
         if 'parameter' in vuln.details:
@@ -61,16 +71,18 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
             details_str += f"|leak_type:{vuln.details['leak_type']}"
         elif 'form_action' in vuln.details:
             details_str += f"|action:{vuln.details['form_action']}"
+
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
     else:
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}|{path}{details_str}"
+
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     }
     cookie_dict = {}
@@ -80,12 +92,9 @@ def check_host_alive(url: str, cookies: str = None) -> bool:
                 k, v = item.strip().split('=', 1)
                 cookie_dict[k] = v
     try:
-        # Thêm allow_redirects=True
-        resp = requests.get(url, headers=headers, cookies=cookie_dict, timeout=10, verify=False, allow_redirects=True)
-        # Server trả lời (dù là 404, 401, 403, 500) nghĩa là host có sống
+        requests.get(url, headers=headers, cookies=cookie_dict, timeout=10, verify=False, allow_redirects=True)
         return True
-    except requests.exceptions.RequestException as e:
-        print(f"Host check failed: {e}", flush=True)
+    except requests.exceptions.RequestException:
         return False
 
 
@@ -99,6 +108,7 @@ def run_scan_task(scan_id: int):
 
         print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
 
+        print(f"[Scan ID: {scan_id}] Performing pre-scan host check...", flush=True)
         if not check_host_alive(scan.target_url, scan.auth_cookies):
             print(f"[Scan ID: {scan_id}] ERROR: Host is unreachable or down. Aborting scan.", flush=True)
             scan.status = 'FAILED'
@@ -113,6 +123,7 @@ def run_scan_task(scan_id: int):
 
         try:
             scraped_urls = set()
+            scraped_forms = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
             if crawl_depth > 0:
@@ -136,14 +147,19 @@ def run_scan_task(scan_id: int):
                     with open(out_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         for item in data:
-                            if 'url' in item: scraped_urls.add(item['url'])
+                            if item.get('type') == 'url':
+                                scraped_urls.add(item['url'])
+                            elif item.get('type') == 'form':
+                                scraped_forms.append(item)
 
-                if os.path.exists(out_file): os.remove(out_file)
+                if os.path.exists(out_file):
+                    os.remove(out_file)
 
                 site_tree = build_site_tree(list(scraped_urls))
                 scan.site_tree = json.dumps(site_tree)
+                scan.discovered_forms = json.dumps(scraped_forms)
                 db.session.commit()
-                print(f"  [Scrapy] Found {len(scraped_urls)} unique URLs.", flush=True)
+                print(f"  [Scrapy] Found {len(scraped_urls)} URLs and {len(scraped_forms)} Forms.", flush=True)
             else:
                 scraped_urls.add(scan.target_url)
 
@@ -172,8 +188,6 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(port_info)))
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
-                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
-                              flush=True)
                         vulns = audit_service_version(product, version)
                         if vulns:
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
@@ -286,7 +300,8 @@ def run_scan_task(scan_id: int):
 
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
-                pre_crawled_urls=scraped_urls
+                pre_crawled_urls=scraped_urls,
+                discovered_forms=scraped_forms
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 

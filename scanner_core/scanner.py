@@ -41,7 +41,7 @@ class Vulnerability:
 
 class Scanner:
     def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10,
-                 pre_crawled_urls: set = None):
+                 pre_crawled_urls: set = None, discovered_forms: list = None):
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
@@ -171,13 +171,17 @@ class Scanner:
         logger.info(f"URLs to test: {len(self.visited_urls)}")
 
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            futures = {
-                executor.submit(tester.test, url): (tester.__class__.__name__, url)
-                for tester in self.testers
-                for url in self.visited_urls
-            }
+            futures = {}
+            for tester in self.testers:
+                for url in self.visited_urls:
+                    futures[executor.submit(tester.test, url)] = (tester.__class__.__name__, url)
 
-            for future in as_completed(futures):
+                if hasattr(tester, 'test_form'):  # Nếu module có hỗ trợ test form
+                    for form in self.discovered_forms:
+                        futures[executor.submit(tester.test_form, form)] = (tester.__class__.__name__,
+                                                                            form['url'] + " [POST]")
+
+        for future in as_completed(futures):
                 tester_name, url_tested = futures[future]
                 try:
                     results = future.result()

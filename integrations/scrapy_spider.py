@@ -75,49 +75,64 @@ class SmartSpider(scrapy.Spider):
 
     def parse(self, response):
         """Phân tích HTML và điều hướng"""
-        # Báo cáo URL này về cho Backend
         if self._is_valid_extension(response.url):
-            yield {'url': response.url}
+            yield {'type': 'url', 'url': response.url}  # Thêm nhãn type cho URL
 
         headers = self.custom_settings['DEFAULT_REQUEST_HEADERS'].copy()
         headers.update(self.auth_headers)
-
         content_type = response.headers.get('Content-Type', b'').decode('utf-8').lower()
 
         if 'text/html' in content_type:
-            # 1. Trích xuất <A> và <IFRAME>
+            # 1. Trích xuất Links
             links = response.css('a::attr(href), iframe::attr(src)').getall()
             for link in links:
-                if link.startswith(('javascript:', 'mailto:', 'tel:')):
-                    continue
-
-                # Bắt SPA Hash Routes
+                if link.startswith(('javascript:', 'mailto:', 'tel:')): continue
                 if '#' in link:
                     full_spa_url = response.urljoin(link)
                     if self._is_valid_extension(full_spa_url):
-                        yield {'url': full_spa_url}
+                        yield {'type': 'url', 'url': full_spa_url}
                     continue
-
                 if self._is_valid_extension(link):
                     yield response.follow(link, self.parse, cookies=self.cookies_dict, headers=headers)
 
-            # 2. Trích xuất <FORM> (Đích đến của dữ liệu)
-            forms = response.css('form::attr(action)').getall()
-            for form_action in forms:
-                full_form_url = response.urljoin(form_action)
-                if self._is_valid_extension(full_form_url):
-                    yield {'url': full_form_url}
+            # 2. [CỰC KỲ QUAN TRỌNG] TRÍCH XUẤT FULL FORM DATA
+            for form in response.xpath('//form'):
+                action = form.attrib.get('action', '')
+                # Xử lý nếu action rỗng (tức là submit vào chính trang hiện tại)
+                full_form_url = response.urljoin(action) if action else response.url
 
-            # 3. Tìm file JavaScript để "đào" API
+                method = form.attrib.get('method', 'get').upper()
+
+                inputs = []
+                # Lấy tất cả input, textarea, select
+                for input_field in form.xpath('.//input | .//textarea | .//select'):
+                    name = input_field.attrib.get('name')
+                    if name:
+                        inputs.append({
+                            'name': name,
+                            'type': input_field.attrib.get('type', 'text'),
+                            'value': input_field.attrib.get('value', '')  # Lấy value mặc định (như CSRF token)
+                        })
+
+                # Gửi thông tin Form cực chi tiết về cho hệ thống
+                yield {
+                    'type': 'form',
+                    'url': full_form_url,
+                    'method': method,
+                    'inputs': inputs,
+                    'page_found': response.url
+                }
+
+            # 3. Tìm JS (giữ nguyên)
             js_files = response.css('script::attr(src)').getall()
             for js in js_files:
-                if not js.startswith(('http', '/')): continue  # Bỏ qua inline/data JS
+                if not js.startswith(('http', '/')): continue
                 yield response.follow(js, self.parse_js, cookies=self.cookies_dict, headers=headers)
 
     def parse_js(self, response):
-        """Phân tích chuyên sâu file JavaScript (Hỗ trợ React/Angular/Vue/GraphQL)"""
+        """Phân tích file JS"""
         if self._is_valid_extension(response.url):
-            yield {'url': response.url}
+            yield {'type': 'url', 'url': response.url}
 
         body = response.text
 
