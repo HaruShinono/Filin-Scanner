@@ -173,7 +173,6 @@ def stream(scan_id):
                     'new_vulnerabilities': new_vulnerabilities,
                     'start_time': scan.start_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'end_time': scan.end_time.strftime('%Y-%m-%d %H:%M:%S') if scan.end_time else None,
-                    'ai_analysis': json.loads(scan.ai_analysis) if scan.ai_analysis else None
                 }
 
                 status_completed = scan.status in ['COMPLETED', 'FAILED']
