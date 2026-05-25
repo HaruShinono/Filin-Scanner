@@ -56,6 +56,9 @@ class Scanner:
         if not self.visited_urls:
             self.visited_urls.add(self.base_url)
 
+        # Lưu trữ danh sách forms được Scrapy tìm thấy
+        self.discovered_forms = discovered_forms if discovered_forms else []
+
         self.lock = threading.Lock()
 
         self.payload_config = self._load_payload_config()
@@ -127,6 +130,7 @@ class Scanner:
         return testers_list
 
     def _normalize_url(self, url: str) -> str:
+        # KHÔNG cắt fragment (#) để giữ lại SPA routes
         return url
 
     def _is_valid_url(self, url: str) -> bool:
@@ -158,31 +162,40 @@ class Scanner:
                 absolute_link = urljoin(self.base_url, link['href'])
                 if self._is_valid_url(absolute_link):
                     self.crawl(absolute_link, current_depth + 1)
-        except requests.RequestException as e:
+        except requests.RequestException:
             pass
 
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
         logger.info(f"--- Starting Scan on {self.base_url} ---")
 
+        # Chỉ dùng crawl fallback nếu Scrapy không được sử dụng
         if len(self.visited_urls) <= 1 and self.depth > 0:
             logger.info("Phase 1: Fallback Crawling for URLs...")
             self.crawl(self.base_url, 0)
 
         logger.info(f"URLs to test: {len(self.visited_urls)}")
+        logger.info(f"Forms to test: {len(self.discovered_forms)}")
 
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = {}
             for tester in self.testers:
+                # 1. Chạy test trên tất cả URLs
                 for url in self.visited_urls:
                     futures[executor.submit(tester.test, url)] = (tester.__class__.__name__, url)
 
-                if hasattr(tester, 'test_form'):  # Nếu module có hỗ trợ test form
+                # 2. Chạy test trên tất cả POST Forms (nếu tester hỗ trợ)
+                if hasattr(tester, 'test_form'):
                     for form in self.discovered_forms:
                         futures[executor.submit(tester.test_form, form)] = (tester.__class__.__name__,
-                                                                            form['url'] + " [POST]")
+                                                                            f"{form['url']} [POST]")
 
-        for future in as_completed(futures):
+            total_tasks = len(futures)
+            completed_tasks = 0
+
+            for future in as_completed(futures):
                 tester_name, url_tested = futures[future]
+                completed_tasks += 1
+
                 try:
                     results = future.result()
                     if not results: continue
