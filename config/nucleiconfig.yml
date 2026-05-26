@@ -1,42 +1,40 @@
-# Cập nhật cac dữ liệu lỗ hổng mới nhất.
 update_templates: true
-
-# Mức độ nghiêm trọng cần quét. Quét tất cả.
 severities:
-  - "info"
-  - "low"
-  - "medium"
-  - "high"
-  - "critical"
-
-# Tags (thẻ) để quét. Bao gồm các thẻ quan trọng nhất để tăng độ phủ.
-# 'cve', 'rce', 'sqli', 'lfi', 'xss': Các lỗi injection và CVE phổ biến.
-# 'config', 'misconfig': Các lỗi cấu hình sai.
-# 'default-logins', 'exposed-panels': Tìm trang quản trị và tài khoản mặc định.
-# 'tech': Phát hiện công nghệ (ví dụ: WordPress, Joomla).
-# 'osint': Thu thập thông tin công khai (có thể hơi nhiễu nhưng hữu ích).
-# 'takeover': Quét lỗi Subdomain Takeover.
-# 'fuzz': Các template dùng để fuzzing tham số.
+  - info
+  - low
+  - medium
+  - high
+  - critical
 tags:
-  - "cve"
-  - "rce"
-  - "sqli"
-  - "lfi"
-  - "xss"
-  - "ssti"
-  - "config"
-  - "misconfig"
-  - "default-logins"
-  - "exposed-panels"
-  - "tech"
-  - "osint"
-  - "takeover"
-  - "fuzz"
-  - "ssrf"
-  - "crlf"
-  - "prototype-pollution"
-  - "dast"
-  - "dast-sqli"
-  - "dast-xss"
-rate_limit: 150
-extra_args: "-dast"
+  - cve
+  - rce
+  - sqli
+  - xss
+  - ssti
+  - lfi
+  - ssrf
+  - crlf
+  - prototype-pollution
+  - deserialization
+  - auth-bypass
+  - config
+  - misconfig
+  - exposed-panels
+  - default-logins
+  - tech
+  - takeover
+  - dast
+  - dast-sqli
+  - dast-xss
+rate_limit: 100
+concurrency: 50
+timeout: 10
+retries: 2
+follow_redirects: true
+headless: true
+extra_args: >
+  -dast
+  -stats
+  -random-agent
+  -duc
+  -rl 100
