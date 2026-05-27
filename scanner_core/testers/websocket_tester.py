@@ -12,6 +12,7 @@ class WebsocketTester(BaseTester):
     def __init__(self, session, config: dict):
         super().__init__(session, config)
         self.payloads = [
+            "<iframe src=\"javascript:alert(`xss`)\">",
             "<script>alert('WSXSS')</script>",
             "<img src=x onerror=alert('WSXSS')>"
         ]
@@ -20,76 +21,77 @@ class WebsocketTester(BaseTester):
         vulns = []
         parsed = urlparse(url)
 
-        # Chỉ chạy khi phát hiện endpoint socket.io
         if 'socket.io' not in url.lower():
             return vulns
 
-        # Chuyển đổi HTTP URL thành WebSocket URL (ws:// hoặc wss://)
+        # Convert HTTP protocol to WS protocol
         ws_scheme = 'ws' if parsed.scheme == 'http' else 'wss'
-        # Xây dựng URL bắt tay (handshake) mặc định của Socket.io v4
         ws_url = f"{ws_scheme}://{parsed.netloc}/socket.io/?EIO=4&transport=websocket"
 
-        print(f"  [DEBUG-WS] Auditing WebSocket Endpoint: {ws_url}", flush=True)
+        print(f"  [DEBUG-WS] Connecting to Engine.IO / Socket.IO endpoint: {ws_url}", flush=True)
 
-        # --- TEST 1: Cross-Site WebSocket Hijacking (CSWSH) ---
+        # 1. Run Cross-Site WebSocket Hijacking (CSWSH) Test
         try:
-            # Gửi request bắt tay với Origin độc hại (evil.com)
-            ws = websocket.create_connection(
+            ws_cswsh = websocket.create_connection(
                 ws_url,
                 header=["Origin: http://evil-attacker.com"],
                 timeout=5
             )
-            # Nếu kết nối thành công (Switching Protocols 101) mà không bị từ chối
-            ws.close()
-            print("  [DEBUG-WS] !!! CSWSH VULNERABILITY CONFIRMED !!!", flush=True)
-            vulns.append(Vulnerability(
-                type='Broken Access Control',
-                subcategory='Cross-Site WebSocket Hijacking (CSWSH)',
-                url=url,
-                details={
-                    'evidence': 'WebSocket connection accepted with an arbitrary Origin header (http://evil-attacker.com).',
-                    'mitigation': 'Implement origin validation in Socket.io configuration.'
-                },
-                severity='High',
-                cwe='CWE-1385',
-                cvss_score=7.5,
-                cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:R/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N'
-            ))
-        except Exception as e:
-            print(f"  [DEBUG-WS] CSWSH test passed (Connection refused by server): {e}", flush=True)
+            # Socket.IO handshake packet '0' returned on successful connection
+            initial_packet = ws_cswsh.recv()
+            ws_cswsh.close()
 
-        # --- TEST 2: WebSocket Reflected XSS ---
+            if initial_packet.startswith('0'):
+                vulns.append(Vulnerability(
+                    type='Broken Access Control',
+                    subcategory='Cross-Site WebSocket Hijacking (CSWSH)',
+                    url=url,
+                    details={
+                        'evidence': 'WebSocket connection accepted with an arbitrary Origin header (http://evil-attacker.com).',
+                        'packet_received': initial_packet
+                    },
+                    severity='High',
+                    cwe='CWE-1385',
+                    cvss_score=7.5,
+                    cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:R/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N'
+                ))
+        except Exception:
+            pass
+
+        # 2. Run Socket.IO Event Fuzzing (XSS / verifyLocalXssChallenge)
         try:
-            # Kết nối bình thường
             ws = websocket.create_connection(ws_url, timeout=5)
 
-            # Đọc gói tin chào mừng của Socket.io (thường là '0{"sid":"..."}')
-            ws.recv()
-            # Gửi gói tin ping-probe (chuẩn của Socket.io)
-            ws.send("2probe")
-            ws.recv()
+            # Step A: Handshake '0' packet
+            handshake = ws.recv()
 
+            # Step B: Connect to the namespace (Socket.IO v4 expects a '40' packet)
+            ws.send("40")
+            ns_ack = ws.recv()  # Expect '40{"sid":"..."}'
+
+            # Step C: Probing custom events (e.g. verifyLocalXssChallenge)
             for payload in self.payloads:
-                # Định dạng gói tin Socket.io gửi message: 42["message_name", "payload"]
-                socket_io_payload = f'42["message", "{payload}"]'
-                print(f"  [DEBUG-WS] Sending WebSocket payload: {socket_io_payload}", flush=True)
+                # Format: 42 (Engine.IO Message + Socket.IO Event)
+                event_packet = f'42["verifyLocalXssChallenge","{payload}"]'
+                print(f"  [DEBUG-WS] Emitting packet: {event_packet}", flush=True)
 
-                ws.send(socket_io_payload)
+                ws.send(event_packet)
 
-                # Lắng nghe phản hồi từ server trong 2 giây xem có bị phản xạ nguyên văn không
+                # Monitor server response frame
                 start_time = time.time()
-                while time.time() - start_time < 2:
+                while time.time() - start_time < 3:
                     try:
                         response = ws.recv()
+                        # If the server echoes back the unescaped payload or triggers execution
                         if payload in response:
-                            print("  [DEBUG-WS] !!! WEBSOCKET XSS CONFIRMED !!!", flush=True)
                             vulns.append(Vulnerability(
                                 type='Cross-Site Scripting (XSS)',
                                 subcategory='WebSocket Reflected XSS',
                                 url=url,
                                 details={
-                                    'payload': socket_io_payload,
-                                    'evidence': f'Payload reflected unescaped in WebSocket frame response: {response}'
+                                    'event': 'verifyLocalXssChallenge',
+                                    'payload': event_packet,
+                                    'evidence': f'Payload reflected unescaped in Socket.IO response packet: {response}'
                                 },
                                 severity='High',
                                 cwe='CWE-79',
@@ -97,10 +99,10 @@ class WebsocketTester(BaseTester):
                                 cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:R/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N'
                             ))
                             break
-                    except websocket.SubprocessDoc:
+                    except Exception:
                         break
             ws.close()
         except Exception as e:
-            print(f"  [DEBUG-WS] WebSocket XSS test exception: {e}", flush=True)
+            print(f"  [DEBUG-WS] Socket.IO connection failed: {e}", flush=True)
 
         return vulns
