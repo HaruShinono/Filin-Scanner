@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class DynamicCrawler:
-    def __init__(self, target_url, auth_cookies=None):
+    def __init__(self, target_url, auth_cookies=None, scan_mode='full'):
         self.target_url = target_url
         self.auth_cookies = auth_cookies
+        self.scan_mode = scan_mode
         self.base_url = f"{urlparse(target_url).scheme}://{urlparse(target_url).netloc}"
         self.discovered_apis = []
 
@@ -23,7 +24,6 @@ class DynamicCrawler:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--ignore-certificate-errors")
 
-        # [QUAN TRỌNG NHẤT] Bật tính năng ghi log hiệu năng (Network Interception)
         chrome_options.set_capability(
             "goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"}
         )
@@ -34,74 +34,70 @@ class DynamicCrawler:
         driver = self._get_driver()
 
         try:
-            # 1. Truy cập trang chủ & Bypass Ngrok
             driver.get(f"{self.base_url}/favicon.ico")
             driver.add_cookie({'name': 'ngrok-skip-browser-warning', 'value': 'true', 'path': '/'})
 
-            # Cắm auth cookies nếu có
             if self.auth_cookies:
                 for item in self.auth_cookies.split(';'):
                     if '=' in item:
                         k, v = item.strip().split('=', 1)
                         driver.add_cookie({'name': k, 'value': v, 'path': '/'})
 
-            # 2. Bắt đầu thu thập các trang quan trọng của SPA
-            # Dành riêng cho cấu trúc phổ biến của SPA / Juice Shop
-            test_routes = ['/', '/#/login', '/#/search', '/#/contact', '/#/basket']
+            # Xác định danh sách URL cần giả lập thao tác người dùng
+            if self.scan_mode == 'single':
+                test_routes = [self.target_url]
+            else:
+                test_routes = [
+                    f"{self.base_url}/",
+                    f"{self.base_url}/#/login",
+                    f"{self.base_url}/#/search",
+                    f"{self.base_url}/#/contact",
+                    f"{self.base_url}/#/basket"
+                ]
 
-            for route in test_routes:
-                full_url = f"{self.base_url}{route}"
-                driver.get(full_url)
-                time.sleep(2)  # Chờ Angular render DOM
-
-                # --- FUZZING GIAO DIỆN (BẤM NÚT ĐỂ KÍCH HOẠT API) ---
-                # Điền bừa vào các ô input và bấm nút submit để xem Angular bắn API gì
+            for full_url in test_routes:
                 try:
+                    driver.get(full_url)
+                    time.sleep(2)
+
                     script = """
                     document.querySelectorAll('input').forEach(i => i.value = 'admin@juice-sh.op');
                     document.querySelectorAll('button').forEach(b => b.click());
                     """
                     driver.execute_script(script)
-                    time.sleep(1)  # Chờ API bay đi
+                    time.sleep(1)
                 except:
                     pass
 
-            # 3. "NGHE LÉN" MẠNG (Đọc Network Logs)
             logs = driver.get_log("performance")
 
             for entry in logs:
                 log = json.loads(entry["message"])["message"]
 
-                # Bắt các request chuẩn bị được gửi đi (XHR/Fetch)
                 if log["method"] == "Network.requestWillBeSent":
                     request_data = log["params"]["request"]
                     req_url = request_data["url"]
                     req_method = request_data["method"]
 
-                    # Chỉ lọc các API nội bộ, bỏ qua file tĩnh (.js, .css, ảnh...)
-                    if self.base_url in req_url and not any(
-                            req_url.lower().endswith(ext) for ext in ['.js', '.css', '.png', '.jpg', '.ico', '.woff2']):
-
-                        # Parse Post Data (Body của API)
+                    if self.base_url in req_url and not any(req_url.lower().endswith(ext) for ext in
+                                                            ['.js', '.css', '.png', '.jpg', '.ico', '.woff2', '.svg']):
                         post_data = request_data.get("postData", "")
                         inputs = []
 
                         if post_data:
                             try:
-                                # Nếu là JSON API (Giống Login của Juice Shop)
                                 json_data = json.loads(post_data)
-                                for k, v in json_data.items():
-                                    inputs.append({'name': k, 'value': v, 'type': 'text'})
+                                if isinstance(json_data, dict):
+                                    for k, v in json_data.items():
+                                        inputs.append({'name': k, 'value': str(v), 'type': 'text'})
                             except:
-                                # Nếu là Form-data
                                 for pair in post_data.split('&'):
                                     if '=' in pair:
                                         k, v = pair.split('=', 1)
                                         inputs.append({'name': k, 'value': v, 'type': 'text'})
 
-                        # Lưu API tìm được
                         api_finding = {
-                            'type': 'form',  # Fake type form để Core Scanner hiểu
+                            'type': 'form',
                             'url': req_url,
                             'method': req_method,
                             'inputs': inputs,
@@ -109,15 +105,14 @@ class DynamicCrawler:
                                                                                                 '').lower() or '{' in post_data
                         }
 
-                        # Tránh lưu trùng lặp
-                        if api_finding not in self.discovered_apis and req_method in ['POST', 'PUT', 'DELETE', 'GET']:
+                        if req_method in ['POST', 'PUT', 'DELETE', 'PATCH'] and api_finding not in self.discovered_apis:
                             self.discovered_apis.append(api_finding)
 
             print(
                 f"  [Dynamic Crawler] Captured {len(self.discovered_apis)} hidden API Endpoints/Forms via Network Interception!")
 
         except Exception as e:
-            logger.error(f"Dynamic Crawler error: {e}")
+            pass
         finally:
             driver.quit()
 

@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import requests
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -21,6 +22,7 @@ from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
 from integrations.ai_remediator import generate_overall_analysis
+from integrations.dynamic_crawler import DynamicCrawler
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -28,7 +30,6 @@ try:
     with open('config/knowledge_base.yml', 'r', encoding='utf-8') as f:
         KNOWLEDGE_BASE = yaml.safe_load(f)
 except Exception as e:
-    print(f"Failed to load KB: {e}")
     KNOWLEDGE_BASE = {}
 
 
@@ -70,7 +71,7 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Scanner/1.0'}
+    headers = {'User-Agent': 'Mozilla/5.0', 'ngrok-skip-browser-warning': 'true'}
     cookie_dict = {}
     if cookies:
         for item in cookies.split(';'):
@@ -84,23 +85,22 @@ def check_host_alive(url: str, cookies: str = None) -> bool:
         return False
 
 
+def is_ip_address(host: str) -> bool:
+    """Kiểm tra xem chuỗi có phải là địa chỉ IPv4 không"""
+    return re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host) is not None
+
+
 def run_scan_task(scan_id: int):
     app = create_app()
     with app.app_context():
         scan = db.session.get(Scan, scan_id)
-        if not scan:
-            print(f"Error: Scan with ID {scan_id} not found.", flush=True)
-            return
+        if not scan: return
 
         print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
 
         if not check_host_alive(scan.target_url, scan.auth_cookies):
             print(f"[Scan ID: {scan_id}] ERROR: Host is unreachable or down. Aborting scan.", flush=True)
             scan.status = 'FAILED'
-            scan.ai_analysis = json.dumps({
-                "executive_summary": "Scan aborted because the target host did not respond.",
-                "risk_score": 0, "top_priorities": ["Check if the URL is correct", "Ensure the server is running"]
-            })
             scan.end_time = datetime.now(timezone.utc)
             db.session.commit()
             return
@@ -115,21 +115,16 @@ def run_scan_task(scan_id: int):
             scraped_forms = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
+            # 1. Chạy Scrapy (Nếu là Full Mode)
             if crawl_depth > 0:
                 print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
-
                 with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
                     out_file = tmp_file.name
 
-                cmd = [
-                    'scrapy', 'runspider', 'integrations/scrapy_spider.py',
-                    '-a', f'target={scan.target_url}',
-                    '-a', f'depth_limit={crawl_depth}'
-                ]
-                if scan.auth_cookies:
-                    cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
+                cmd = ['scrapy', 'runspider', 'integrations/scrapy_spider.py', '-a', f'target={scan.target_url}', '-a',
+                       f'depth_limit={crawl_depth}']
+                if scan.auth_cookies: cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
                 cmd.extend(['-o', out_file])
-
                 subprocess.run(cmd, capture_output=True)
 
                 if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
@@ -140,16 +135,23 @@ def run_scan_task(scan_id: int):
                                 scraped_urls.add(item['url'])
                             elif item.get('type') == 'form':
                                 scraped_forms.append(item)
-
                 if os.path.exists(out_file): os.remove(out_file)
-
-                site_tree = build_site_tree(list(scraped_urls))
-                scan.site_tree = json.dumps(site_tree)
-                scan.discovered_forms = json.dumps(scraped_forms)
-                db.session.commit()
-                print(f"  [Scrapy] Found {len(scraped_urls)} unique URLs.", flush=True)
             else:
                 scraped_urls.add(scan.target_url)
+
+            # 2. LUÔN CHẠY Dynamic Crawler (Cả Single và Full Mode)
+            print(f"[Scan ID: {scan_id}] Running Dynamic Browser Crawler (Selenium)...", flush=True)
+            dyn_crawler = DynamicCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
+            hidden_apis = dyn_crawler.crawl()
+            if hidden_apis:
+                scraped_forms.extend(hidden_apis)
+
+            # Lưu Tree & Form
+            site_tree = build_site_tree(list(scraped_urls))
+            scan.site_tree = json.dumps(site_tree)
+            scan.discovered_forms = json.dumps(scraped_forms)
+            db.session.commit()
+            print(f"  [Discovery] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}", flush=True)
 
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
@@ -161,7 +163,8 @@ def run_scan_task(scan_id: int):
                                             details=json.dumps(waf_result)))
                 db.session.commit()
 
-            if domain:
+            # Bỏ qua DNSRecon nếu target là IP
+            if domain and not is_ip_address(domain):
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
                     db.session.add(ReconFinding(scan_id=scan.id, tool='dnsrecon',
@@ -196,19 +199,13 @@ def run_scan_task(scan_id: int):
                             v_hash = _generate_dedup_hash(temp_vuln)
                             if v_hash not in seen_vuln_hashes:
                                 kb_info = get_kb_info(temp_vuln.type)
-                                cwe = kb_info.get('cwe', 'N/A')
-                                cvss_vector = temp_vuln.cvss_vector or kb_info.get('cvss_vector')
-                                cvss_score = temp_vuln.cvss_score
-
-                                if cvss_vector:
-                                    calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
-                                    if calculated_score is not None:
-                                        cvss_score, severity = calculated_score, calc_severity
-
                                 db.session.add(Vulnerability(scan_id=scan.id, type=temp_vuln.type,
                                                              subcategory=temp_vuln.subcategory, url=temp_vuln.url,
-                                                             severity=severity, cvss_score=cvss_score,
-                                                             cvss_vector=cvss_vector, cwe=cwe,
+                                                             severity=severity,
+                                                             cvss_score=temp_vuln.cvss_score or kb_info.get(
+                                                                 'cvss_score'),
+                                                             cvss_vector=temp_vuln.cvss_vector or kb_info.get(
+                                                                 'cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
                                                              details=json.dumps(temp_vuln.details, indent=2)))
                                 seen_vuln_hashes.add(v_hash)
 
@@ -227,20 +224,11 @@ def run_scan_task(scan_id: int):
                 v_hash = _generate_dedup_hash(nuclei_temp)
                 if v_hash not in seen_vuln_hashes:
                     kb_info = get_kb_info(nuclei_temp.type)
-                    cwe = kb_info.get('cwe', 'N/A')
-                    cvss_vector = nuclei_temp.cvss_vector or kb_info.get('cvss_vector')
-                    cvss_score = nuclei_temp.cvss_score
-                    sev = nuclei_temp.severity
-
-                    if cvss_vector:
-                        calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
-                        if calculated_score is not None:
-                            cvss_score, sev = calculated_score, calc_severity
-
                     db.session.add(
                         Vulnerability(scan_id=scan.id, type=nuclei_temp.type, subcategory=nuclei_temp.subcategory,
-                                      url=nuclei_temp.url, severity=sev, cvss_score=cvss_score, cvss_vector=cvss_vector,
-                                      cwe=cwe, details=json.dumps(nuclei_temp.details, indent=2)))
+                                      url=nuclei_temp.url, severity=nuclei_temp.severity,
+                                      cvss_score=kb_info.get('cvss_score'), cvss_vector=kb_info.get('cvss_vector'),
+                                      cwe=kb_info.get('cwe', 'N/A'), details=json.dumps(nuclei_temp.details, indent=2)))
                     seen_vuln_hashes.add(v_hash)
             db.session.commit()
 
@@ -248,23 +236,14 @@ def run_scan_task(scan_id: int):
             for result in run_sqlmap(scan.target_url, scan.auth_cookies):
                 title = f"SQL Injection (Verified by sqlmap) - {len(result.get('findings', []))} points"
                 kb_info = get_kb_info("SQL Injection")
-                cwe = kb_info.get('cwe', 'N/A')
-                cvss_vector = kb_info.get('cvss_vector')
-                cvss_score, sev = None, "Critical"
-
-                if cvss_vector:
-                    calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
-                    if calculated_score is not None:
-                        cvss_score, sev = calculated_score, calc_severity
-
                 db.session.add(Vulnerability(scan_id=scan.id, type=title, subcategory="Automated Exploitation",
-                                             url=scan.target_url, severity=sev, cvss_score=cvss_score,
-                                             cvss_vector=cvss_vector, cwe=cwe, details=json.dumps(result, indent=2)))
+                                             url=scan.target_url, severity="Critical",
+                                             cvss_score=kb_info.get('cvss_score'),
+                                             cvss_vector=kb_info.get('cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
+                                             details=json.dumps(result, indent=2)))
             db.session.commit()
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
-
-            # [MỚI] Thêm dòng log hiển thị số lượng URL và Form chuẩn bị quét lên Console
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
                   flush=True)
 
@@ -292,8 +271,7 @@ def run_scan_task(scan_id: int):
 
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
-                pre_crawled_urls=scraped_urls,
-                discovered_forms=scraped_forms
+                pre_crawled_urls=scraped_urls, discovered_forms=scraped_forms
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
