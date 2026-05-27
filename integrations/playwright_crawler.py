@@ -107,6 +107,7 @@ class PlaywrightCrawler:
                         f"{self.base_url}/#/register",
                         f"{self.base_url}/#/search",
                         f"{self.base_url}/#/contact",
+                        f"{self.base_url}/#/forgot-password",
                         f"{self.base_url}/#/basket"
                     ]
 
@@ -117,53 +118,75 @@ class PlaywrightCrawler:
                         page.wait_for_timeout(2000)
 
                         page.evaluate("""
-                            const welcomeBtn = document.querySelector('button[aria-label="Close Welcome Banner"]');
-                            if (welcomeBtn) { welcomeBtn.click(); }
+                            const dismissBtn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Dismiss'));
+                            if (dismissBtn) { dismissBtn.click(); }
 
-                            const cookieBtn = document.querySelector('a[aria-label="dismiss cookie message"]');
+                            const cookieBtn = Array.from(document.querySelectorAll('a')).find(el => el.getAttribute('aria-label') === 'dismiss cookie message');
                             if (cookieBtn) { cookieBtn.click(); }
                         """)
                         page.wait_for_timeout(500)
 
-                        if "/#/login" in url or url.endswith("/login"):
-                            email_input = page.query_selector('#email')
-                            pass_input = page.query_selector('#password')
-                            if email_input and pass_input:
-                                email_input.focus()
-                                email_input.fill('admin@juice-sh.op')
-                                print("  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
+                        inputs = page.query_selector_all('input')
+                        print(f"  [DEBUG-PLAYWRIGHT] Found {len(inputs)} input fields on page", flush=True)
 
-                                pass_input.focus()
-                                pass_input.fill('admin123')
-                                print("  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
+                        for inp in inputs:
+                            try:
+                                inp_type = inp.get_attribute('type') or 'text'
+                                inp_id = inp.get_attribute('id') or ''
+                                inp_name = inp.get_attribute('name') or ''
+                                placeholder = inp.get_attribute('placeholder') or ''
 
-                                page.wait_for_timeout(500)
+                                if 'email' in inp_id.lower() or 'email' in inp_name.lower():
+                                    inp.focus()
+                                    inp.fill('admin@juice-sh.op')
+                                    print(f"  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
+                                elif inp_type == 'password':
+                                    inp.focus()
+                                    inp.fill('admin123')
+                                    print(f"  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
+                                elif 'search' in inp_id.lower() or 'search' in inp_name.lower() or 'search' in placeholder.lower():
+                                    inp.focus()
+                                    inp.fill('apple')
+                                    page.keyboard.press("Enter")
+                                    print(f"  [DEBUG-PLAYWRIGHT] Performed search query", flush=True)
+                                else:
+                                    inp.focus()
+                                    inp.fill('test_fuzzing_data')
+                            except Exception:
+                                pass
 
-                                login_btn = page.query_selector('#loginButton')
-                                if login_btn:
-                                    print("  [DEBUG-PLAYWRIGHT] Clicking login button", flush=True)
-                                    login_btn.click()
-                                    page.wait_for_timeout(1000)
-
-                        search_icon = page.query_selector('#searchQuery')
+                        search_icon = page.query_selector('.mat-search-button, #searchQuery')
                         if search_icon:
-                            search_icon.focus()
-                            search_icon.click()
-                            page.keyboard.type('apple')
-                            page.keyboard.press("Enter")
-                            print("  [DEBUG-PLAYWRIGHT] Submitted Search query 'apple'", flush=True)
-                            page.wait_for_timeout(1000)
+                            try:
+                                search_icon.click()
+                                page.keyboard.type('apple')
+                                page.keyboard.press("Enter")
+                                print(f"  [DEBUG-PLAYWRIGHT] Clicked search icon and submitted query", flush=True)
+                            except:
+                                pass
 
+                        buttons = page.query_selector_all('button:not([disabled])')
+                        for btn in buttons:
+                            try:
+                                btn_text = btn.inner_text().lower()
+                                if any(k in btn_text for k in
+                                       ['log in', 'login', 'submit', 'register', 'search', 'send']):
+                                    print(f"  [DEBUG-PLAYWRIGHT] Clicking action button: '{btn.inner_text()}'",
+                                          flush=True)
+                                    btn.click()
+                                    page.wait_for_timeout(500)
+                            except:
+                                pass
+
+                        page.wait_for_timeout(1500)
                     except Exception as e:
                         print(f"  [DEBUG-PLAYWRIGHT] Failed to interact with {url}: {e}", flush=True)
-
-                print("  [DEBUG-PLAYWRIGHT] Waiting for background network requests to settle...", flush=True)
-                page.wait_for_timeout(3000)
 
             except Exception as e:
                 print(f"  [DEBUG-PLAYWRIGHT] Main route error: {e}", flush=True)
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms!", flush=True)
+        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms via Deep Interception!",
+              flush=True)
         return self.discovered_apis
