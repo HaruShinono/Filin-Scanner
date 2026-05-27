@@ -4,7 +4,7 @@
 
 {% block content %}
 <style>
-    /* --- CSS NÂNG CẤP SITE STRUCTURE TREE (MỚI) --- */
+    /* --- CSS NÂNG CẤP SITE STRUCTURE TREE --- */
     .site-tree-container {
         background-color: #1e1e2e;
         color: #cdd6f4;
@@ -22,7 +22,6 @@
         margin: 0.15rem 0;
         position: relative;
     }
-    /* Đường nối dọc nét đứt */
     .site-tree-container ul::before {
         content: "";
         position: absolute;
@@ -37,7 +36,6 @@
         padding-left: 0.8rem;
         margin: 0.2rem 0;
     }
-    /* Đường nối ngang nét đứt */
     .site-tree-container ul li::before {
         content: "";
         position: absolute;
@@ -46,7 +44,6 @@
         width: 0.8rem;
         border-top: 1px dashed #585b70;
     }
-    /* Khử đường nối dọc thừa cho phần tử cuối cùng */
     .site-tree-container ul li:last-child::after {
         content: "";
         position: absolute;
@@ -54,7 +51,7 @@
         top: 0.65rem;
         bottom: 0;
         width: 1px;
-        background-color: #1e1e2e; /* Trùng màu nền để che đi đường line thừa */
+        background-color: #1e1e2e;
     }
     .tree-node {
         display: inline-flex;
@@ -68,7 +65,7 @@
         background-color: #313244;
         color: #f5c2e7;
     }
-    .tree-folder { color: #f9e2af !important; } /* Màu vàng hổ phách */
+    .tree-folder { color: #f9e2af !important; }
     .tree-file { color: #bac2de !important; }
 
     /* --- CSS CHO ACCORDION & TERMINAL --- */
@@ -89,18 +86,49 @@
         background-color: #313244;
         color: #cdd6f4;
         border: 1px solid #45475a;
+        display: inline-block;
+    }
+
+    /* --- CSS CHI TIẾT LỖ HỔNG DẠNG BẢNG (MỚI) --- */
+    .tech-details-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .tech-details-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        vertical-align: middle;
+    }
+    .tech-details-table tr:last-child td {
+        border-bottom: none;
+    }
+    .tech-details-key {
+        font-weight: bold;
+        color: #495057;
+        width: 20%;
+        background-color: rgba(0, 0, 0, 0.02);
+    }
+    .tech-details-val code {
+        background-color: #1e1e2e !important;
+        color: #f5e0dc !important;
+        padding: 8px 12px !important;
+        border-radius: 4px;
+        font-size: 0.9em;
+        display: block;
     }
 </style>
 
 <div class="container">
-    <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="mb-0">Scan Details</h1>
             <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
         </div>
         <div>
-            <!-- [MỚI] Nút hủy Scan (Tự động hiển thị bằng JS) -->
             <button id="btn-cancel-scan" class="btn btn-outline-danger me-2 d-none" onclick="cancelScan({{ scan.id }})">
                 <i class="bi bi-stop-circle"></i> Cancel Scan
             </button>
@@ -113,7 +141,6 @@
         </div>
     </div>
 
-    <!-- Scan Summary Card -->
     <div class="card bg-body-secondary mb-4">
         <div class="card-body">
             <div class="row">
@@ -146,36 +173,42 @@
         </div>
     </div>
 
-    <!-- SITE STRUCTURE TREE (Đã làm đẹp bằng CSS cây thư mục chuyên nghiệp) -->
+    <!-- SITE STRUCTURE TREE (Thu gọn vào nút bấm) -->
     {% if scan.site_tree %}
-    <h3 class="mb-3 mt-4">Site Structure (Crawled Map)</h3>
-    <div class="card shadow-sm mb-4 border-0">
-        <div class="site-tree-container">
-            <span class="tree-node tree-folder fw-bold"><i class="bi bi-globe me-2"></i>{{ scan.target_url }}</span>
+    <div class="mb-3 mt-4">
+        <button class="btn btn-outline-secondary d-flex align-items-center gap-2 shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#siteTreeCollapse" aria-expanded="false">
+            <i class="bi bi-diagram-3-fill text-primary"></i>
+            <span>Site Structure (Crawled Map) - Click to Expand</span>
+        </button>
+    </div>
 
-            {% macro render_tree(tree_node) %}
-                <ul>
-                {% for key, child in tree_node.items() %}
-                    <li>
-                        {% if child %}
-                            <span class="tree-node tree-folder"><i class="bi bi-folder-fill me-1"></i>{{ key }}/</span>
-                            {{ render_tree(child) }}
-                        {% else %}
-                            <span class="tree-node tree-file"><i class="bi bi-file-earmark-text me-1"></i>{{ key }}</span>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            {% endmacro %}
+    <div class="collapse" id="siteTreeCollapse">
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="site-tree-container">
+                <span class="tree-node tree-folder fw-bold"><i class="bi bi-globe me-2"></i>{{ scan.target_url }}</span>
 
-            {{ render_tree(scan.to_dict().get('site_tree', {})) }}
+                {% macro render_tree(tree_node) %}
+                    <ul>
+                    {% for key, child in tree_node.items() %}
+                        <li>
+                            {% if child %}
+                                <span class="tree-node tree-folder"><i class="bi bi-folder-fill me-1"></i>{{ key }}/</span>
+                                {{ render_tree(child) }}
+                            {% else %}
+                                <span class="tree-node tree-file"><i class="bi bi-file-earmark-text me-1"></i>{{ key }}</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
+                {% endmacro %}
+
+                {{ render_tree(scan.to_dict().get('site_tree', {})) }}
+            </div>
         </div>
     </div>
     {% endif %}
 
-    <!-- RECONNAISSANCE SECTION -->
     {% if scan.recon_findings %}
-
     {% set vulnerable_ports = [] %}
     {% for finding in scan.recon_findings %}
         {% if finding.tool == 'nmap-vuln' %}
@@ -340,13 +373,54 @@
         </div>
     </div>
 
+    <div id="ai-summary-section" class="d-none mb-5 mt-5">
+        <div class="card border-0 shadow-lg" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white;">
+            <div class="card-header bg-transparent border-0 pt-4 px-4">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-robot fs-1 me-3 text-info"></i>
+                    <div>
+                        <h2 class="mb-0 fw-bold">AI Security Consultant</h2>
+                        <p class="text-info-emphasis mb-0">Automated Executive Report & Strategy</p>
+                    </div>
+                    <div class="ms-auto text-end">
+                        <span class="d-block text-uppercase small opacity-75">Overall Risk Score</span>
+                        <span id="ai-risk-score" class="display-4 fw-bold text-danger">--</span><span class="fs-5">/100</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-4">
+
+                <div class="mb-4">
+                    <h5 class="text-uppercase text-secondary small fw-bold ls-1">Executive Summary</h5>
+                    <p id="ai-exec-summary" class="lead" style="font-weight: 300;"></p>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
+                            <h5 class="text-warning mb-3"><i class="bi bi-list-check me-2"></i>Immediate Actions</h5>
+                            <ul id="ai-priorities" class="list-unstyled mb-0">
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
+                            <h5 class="text-success mb-3"><i class="bi bi-shield-check me-2"></i>Strategic Advice</h5>
+                            <p id="ai-strategy" class="small mb-0 opacity-75"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="mb-5"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // [MỚI] Hàm gửi tín hiệu HỦY SCAN lên backend
     async function cancelScan(scanId) {
         if (!confirm('Are you sure you want to cancel this scan?')) return;
         const btn = document.getElementById('btn-cancel-scan');
@@ -430,20 +504,27 @@
             .replace(/-+$/, '');
     }
 
-    // [MỚI] Hàm parse CVSS v4.0 vector thành các badge màu sắc
-    function renderCvssVector(vectorStr) {
-        if (!vectorStr) return '';
-        const parts = vectorStr.split('/');
-        let html = '<div class="d-flex flex-wrap gap-1 mt-2">';
-        parts.forEach(part => {
-            if (part === 'CVSS:4.0') return;
-            const subparts = part.split(':');
-            if (subparts.length === 2) {
-                const metric = subparts[0];
-                const val = subparts[1];
-                html += `<span class="cvss-vector-badge" title="${metric}">${metric}:${val}</span>`;
-            }
-        });
+    // [MỚI] Hàm parse và căn chỉnh thẳng hàng tuyệt đẹp cho CVSS v4.0 metrics
+    function renderCvssAndCwe(vectorStr, cwe) {
+        let html = '<div class="d-flex align-items-center flex-wrap gap-1 mt-2">';
+
+        if (cwe && cwe !== 'N/A') {
+            const cweId = cwe.split(':')[0];
+            html += `<span class="badge text-bg-secondary" style="font-size: 0.72em;">${cweId}</span>`;
+        }
+
+        if (vectorStr) {
+            const parts = vectorStr.split('/');
+            parts.forEach(part => {
+                if (part === 'CVSS:4.0') return;
+                const subparts = part.split(':');
+                if (subparts.length === 2) {
+                    const metric = subparts[0];
+                    const val = subparts[1];
+                    html += `<span class="cvss-vector-badge" style="font-size: 0.72em; padding: 0.25em 0.5em;" title="${metric}">${metric}:${val}</span>`;
+                }
+            });
+        }
         html += '</div>';
         return html;
     }
@@ -469,7 +550,6 @@
             statusBadge.textContent = status;
             statusBadge.className = 'badge';
 
-            // Ẩn/Hiện nút Hủy Scan dựa theo trạng thái
             const cancelBtn = document.getElementById('btn-cancel-scan');
             if (status === 'RUNNING' || status === 'PENDING') {
                 cancelBtn.classList.remove('d-none');
@@ -510,23 +590,30 @@
                 try { details = JSON.parse(details); } catch (e) { details = {}; }
             }
 
-            let detailsHtml = '<ul class="list-group list-group-flush">';
+            // --- [SỬA LẠI] CHI TIẾT LỖ HỔNG DẠNG BẢNG ĐẸP ---
+            let detailsHtml = '<table class="tech-details-table table table-bordered table-sm mt-2 mb-0" style="table-layout: fixed; width: 100%;">';
+            detailsHtml += '<tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
                     if (key === 'ai_suggestion') continue;
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
                     displayValue = escapeHtml(displayValue);
-                    detailsHtml += `<li class="list-group-item"><strong>${escapeHtml(key)}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
+                    detailsHtml += `
+                        <tr>
+                            <td class="tech-details-key align-middle">${escapeHtml(key)}</td>
+                            <td class="tech-details-val"><code class="text-break d-block" style="white-space: pre-wrap;">${displayValue}</code></td>
+                        </tr>
+                    `;
                 }
             } else {
-                 detailsHtml += `<li class="list-group-item"><code>${escapeHtml(details)}</code></li>`;
+                 detailsHtml += `<tr><td colspan="2" class="tech-details-val"><code class="text-break d-block" style="white-space: pre-wrap;">${escapeHtml(details)}</code></td></tr>`;
             }
-            detailsHtml += '</ul>';
+            detailsHtml += '</tbody></table>';
 
             const childHtml = `
                 <div class="accordion-item border-0 border-bottom">
                     <h2 class="accordion-header" id="heading-child-${vuln.id}">
-                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}">
+                        <button class="accordion-button collapsed class="py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}">
                             <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" style="font-size: 0.75em;">${vuln.severity}</span>
                             <span class="fw-bold me-2 text-truncate" style="max-width: 300px;">${escapeHtml(vuln.subcategory || 'Issue Instance')}</span>
                             <span class="text-muted text-truncate small">${escapeHtml(vuln.url)}</span>
@@ -552,20 +639,15 @@
                 };
 
                 let cvssBadge = '';
-                let cweBadge = '';
                 if (vuln.cvss_score) {
                     cvssBadge = `<span class="badge bg-dark border border-secondary text-light me-2" title="${vuln.cvss_vector || ''}">CVSS: ${vuln.cvss_score}</span>`;
-                }
-                if (vuln.cwe && vuln.cwe !== 'N/A') {
-                    const cweId = vuln.cwe.split(':')[0];
-                    cweBadge = `<span class="badge text-bg-secondary me-2">${cweId}</span>`;
                 }
 
                 const ai_suggestion = details.ai_suggestion;
                 let aiTabNav = `
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="ai-tab-btn-${groupHash}" data-bs-toggle="tab" data-bs-target="#ai-tab-${groupHash}" type="button" role="tab">
-                            <i class="bi bi-stars text-warning me-1"></i>AI Remediation
+                            AI Remediation
                         </button>
                     </li>`;
 
@@ -600,8 +682,8 @@
                     </div>`;
                 }
 
-                // Render CVSS v4.0 vector chi tiết
-                const cvssVectorHtml = renderCvssVector(vuln.cvss_vector);
+                // --- [SỬA LẠI] CĂN THẲNG HÀNG CVSS V4 & CWE ---
+                const cvssVectorHtml = renderCvssAndCwe(vuln.cvss_vector, vuln.cwe);
 
                 const parentHtml = `
                     <div class="accordion-item mb-2 border rounded" id="group-wrapper-${groupHash}">
@@ -615,9 +697,8 @@
                         </h2>
                         <div id="collapse-group-${groupHash}" class="accordion-collapse collapse" data-bs-parent="#vulnerabilities-accordion">
                             <div class="accordion-body pt-0">
-                                <div class="mb-2 mt-3">
-                                    ${cweBadge}
-                                </div>
+
+                                <!-- Render liền một hàng ngang -->
                                 ${cvssVectorHtml}
                                 <hr class="my-3 opacity-25">
 
@@ -679,7 +760,6 @@
                 progressBar.classList.remove('progress-bar-animated');
                 progressContainer.setAttribute('aria-valuenow', 100);
 
-                // [MỚI] Tự động ẩn dòng quay "Scanning & Analyzing..." khi hoàn thành/thất bại
                 loadingState.classList.add('d-none');
 
                 if (data.status === 'COMPLETED') {
