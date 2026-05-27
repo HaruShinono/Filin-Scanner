@@ -27,13 +27,11 @@ class PlaywrightCrawler:
             inputs = []
             is_api = False
 
-            # --- [MỚI] Bắt Headers quan trọng từ request gốc của trình duyệt ---
             raw_headers = request.headers
             captured_headers = {}
             for k, v in raw_headers.items():
                 if k.lower() in ['authorization', 'content-type', 'accept', 'x-csrf-token']:
                     captured_headers[k] = v
-            # -------------------------------------------------------------------
 
             post_data = request.post_data
             if post_data:
@@ -55,7 +53,6 @@ class PlaywrightCrawler:
                 for k, v in parse_qsl(query):
                     inputs.append({'name': k, 'value': v, 'type': 'text'})
 
-            # Dù không có input, một endpoint POST/PUT vẫn là một attack point
             if inputs or method != 'GET':
                 api_finding = {
                     'type': 'form',
@@ -63,13 +60,14 @@ class PlaywrightCrawler:
                     'method': method,
                     'inputs': inputs,
                     'is_api': is_api or 'application/json' in request.headers.get('content-type', '').lower(),
-                    'headers': captured_headers  # Truyền header xuống Core Scanner
+                    'headers': captured_headers
                 }
 
                 sig = f"{method}:{api_finding['url']}"
                 if sig not in self.seen_signatures:
                     self.seen_signatures.add(sig)
                     self.discovered_apis.append(api_finding)
+                    print(f"  [DEBUG-PLAYWRIGHT] Captured API: {method} {api_finding['url']}", flush=True)
 
     def crawl(self):
         print(f"  [Playwright Crawler] Launching modern headless browser on {self.target_url}...", flush=True)
@@ -93,68 +91,102 @@ class PlaywrightCrawler:
             page.on("request", self._handle_request)
 
             try:
-                page.goto(self.base_url)
-                page.wait_for_load_state("networkidle")
+                # Tránh dùng networkidle ở trang chủ để không bị treo bởi Socket.io
+                page.goto(self.base_url, wait_until="domcontentloaded", timeout=10000)
+                page.wait_for_timeout(2000)
 
                 if token_value:
                     page.evaluate(f"localStorage.setItem('token', '{token_value}')")
+                    print("  [DEBUG-PLAYWRIGHT] Token injected into LocalStorage", flush=True)
 
                 if self.scan_mode == 'single':
                     test_routes = [self.target_url]
                 else:
                     test_routes = [
-                        f"{self.base_url}/", f"{self.base_url}/#/login", f"{self.base_url}/#/register",
-                        f"{self.base_url}/#/search", f"{self.base_url}/#/contact", f"{self.base_url}/#/basket"
+                        f"{self.base_url}/",
+                        f"{self.base_url}/#/login",
+                        f"{self.base_url}/#/register",
+                        f"{self.base_url}/#/search",
+                        f"{self.base_url}/#/contact",
+                        f"{self.base_url}/#/basket"
                     ]
 
                 for url in test_routes:
                     try:
-                        page.goto(url, wait_until="networkidle", timeout=8000)
+                        print(f"  [DEBUG-PLAYWRIGHT] Navigating to: {url}", flush=True)
+                        # Dùng domcontentloaded để vượt qua nghẽn Socket.io
+                        page.goto(url, wait_until="domcontentloaded", timeout=10000)
+                        page.wait_for_timeout(2000)  # Đợi Angular render HTML xong
 
-                        page.evaluate(
-                            "document.querySelectorAll('.cc-dismiss, .close-dialog, [aria-label=\"Close Welcome Banner\"]').forEach(b => b.click());")
+                        # --- GIẢI QUYẾT POPUP BANNER BẰNG JAVASCRIPT ---
+                        # Tìm và click chính xác các nút đóng Welcome và Cookie Banner của Juice Shop
+                        page.evaluate("""
+                            // Click Dismiss Welcome Banner
+                            const dismissBtn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Dismiss'));
+                            if (dismissBtn) { dismissBtn.click(); }
 
+                            // Click Cookie Accept Banner
+                            const cookieBtn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('cookie'));
+                            if (cookieBtn) { cookieBtn.click(); }
+                        """)
+                        page.wait_for_timeout(500)
+
+                        # --- ĐIỀN FORM TỰ ĐỘNG BẰNG PLAYWRIGHT API (KÍCH HOẠT BINDING) ---
                         inputs = page.query_selector_all('input')
+                        print(f"  [DEBUG-PLAYWRIGHT] Found {len(inputs)} input fields on page", flush=True)
+
                         for inp in inputs:
                             try:
                                 inp_type = inp.get_attribute('type') or 'text'
                                 inp_id = inp.get_attribute('id') or ''
                                 inp_name = inp.get_attribute('name') or ''
+                                placeholder = inp.get_attribute('placeholder') or ''
 
                                 if 'email' in inp_id.lower() or 'email' in inp_name.lower():
                                     inp.focus()
                                     inp.fill('admin@juice-sh.op')
+                                    print(f"  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
                                 elif inp_type == 'password':
                                     inp.focus()
                                     inp.fill('admin123')
-                                elif 'search' in inp_id.lower() or 'search' in inp_name.lower():
+                                    print(f"  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
+                                elif 'search' in inp_id.lower() or 'search' in inp_name.lower() or 'search' in placeholder.lower():
                                     inp.focus()
                                     inp.fill('apple')
                                     page.keyboard.press("Enter")
-                            except Exception:
+                                    print(f"  [DEBUG-PLAYWRIGHT] Performed search query", flush=True)
+                            except Exception as e:
                                 pass
 
-                        search_button = page.query_selector('#searchQuery')
-                        if search_button:
-                            search_button.click()
-                            page.keyboard.type('apple')
-                            page.keyboard.press("Enter")
+                        # Click mở rộng ô tìm kiếm của Material UI nếu nó đang đóng
+                        search_icon = page.query_selector('.mat-search-button, #searchQuery')
+                        if search_icon:
+                            try:
+                                search_icon.click()
+                                page.keyboard.type('apple')
+                                page.keyboard.press("Enter")
+                                print(f"  [DEBUG-PLAYWRIGHT] Clicked search icon and submitted query", flush=True)
+                            except:
+                                pass
 
+                        # Click nút Submit / Login
                         buttons = page.query_selector_all('button:not([disabled])')
                         for btn in buttons:
                             try:
                                 btn_text = btn.inner_text().lower()
-                                if any(k in btn_text for k in ['log in', 'login', 'submit', 'register', 'search']):
+                                if any(k in btn_text for k in ['log in', 'login', 'submit', 'register']):
+                                    print(f"  [DEBUG-PLAYWRIGHT] Clicking action button: '{btn.inner_text()}'",
+                                          flush=True)
                                     btn.click()
                             except:
                                 pass
 
-                        page.wait_for_timeout(1500)
-                    except Exception:
-                        pass
+                        page.wait_for_timeout(1500)  # Đợi API phản hồi sau click
+                    except Exception as e:
+                        print(f"  [DEBUG-PLAYWRIGHT] Failed to interact with {url}: {e}", flush=True)
 
             except Exception as e:
-                pass
+                print(f"  [DEBUG-PLAYWRIGHT] Main route error: {e}", flush=True)
             finally:
                 browser.close()
 
