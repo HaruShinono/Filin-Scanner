@@ -118,3 +118,96 @@ main.container {
     background-color: rgba(220, 53, 69, 0.1);
     box-shadow: inset 0 -1px 0 rgba(0,0,0,.125);
 }
+
+/* --- SITE STRUCTURE TREE STYLING --- */
+.site-tree-container {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    border: 1px solid #313244;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.site-tree-container ul {
+    list-style: none;
+    padding-left: 1.2rem;
+    margin: 0.15rem 0;
+    position: relative;
+}
+
+/* Đường line đứng nét đứt */
+.site-tree-container ul::before {
+    content: "";
+    position: absolute;
+    left: 0.3rem;
+    top: -0.4rem;
+    bottom: 0.8rem;
+    width: 1px;
+    border-left: 1px dashed #585b70;
+}
+
+.site-tree-container ul li {
+    position: relative;
+    padding-left: 0.8rem;
+    margin: 0.2rem 0;
+}
+
+/* Đường line ngang nét đứt */
+.site-tree-container ul li::before {
+    content: "";
+    position: absolute;
+    left: -0.9rem;
+    top: 0.65rem;
+    width: 0.8rem;
+    border-top: 1px dashed #585b70;
+}
+
+/* Khử nét đứt thừa cho phần tử cuối cùng */
+.site-tree-container ul li:last-child::after {
+    content: "";
+    position: absolute;
+    left: -0.9rem;
+    top: 0.65rem;
+    bottom: 0;
+    width: 1px;
+    background-color: #1e1e2e; /* Trùng với màu nền của container */
+}
+
+.tree-node {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    transition: all 0.15s ease-in-out;
+    cursor: default;
+}
+
+.tree-node:hover {
+    background-color: #313244;
+    color: #f5c2e7;
+}
+
+.tree-folder {
+    color: #f9e2af !important; /* Màu vàng hổ phách */
+}
+
+.tree-file {
+    color: #bac2de !important;
+}
+
+/* --- BADGES CVSS V4.0 SPECIFIC STYLES --- */
+.cvss-vector-badge {
+    font-size: 0.72em;
+    padding: 0.25em 0.5em;
+    border-radius: 3px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    display: inline-block;
+    margin-right: 0.25rem;
+    margin-bottom: 0.25rem;
+}
