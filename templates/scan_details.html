@@ -4,151 +4,204 @@
 
 {% block content %}
 <style>
-    /* Custom Styling for Scan Details */
+    /* --- General Utilities --- */
+    .font-monospace {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+    }
+
+    /* --- Nesting Child Accordion --- */
     .child-accordion .accordion-button {
         padding: 0.6rem 1.2rem;
         font-size: 0.9rem;
-        background-color: rgba(var(--bs-dark-rgb), 0.02);
-        border-bottom: 1px solid rgba(var(--bs-dark-rgb), 0.05);
+        background-color: rgba(0, 0, 0, 0.015);
+        color: var(--bs-body-color);
+        border: none;
+    }
+    .child-accordion .accordion-button:not(.collapsed) {
+        background-color: rgba(0, 0, 0, 0.04);
+        color: var(--bs-primary);
+        box-shadow: none;
     }
     .child-accordion .accordion-body {
-        padding: 1.25rem;
+        padding: 1rem;
         background-color: var(--bs-body-bg);
-        border: 1px solid rgba(var(--bs-dark-rgb), 0.05);
+        border-top: 1px solid rgba(0, 0, 0, 0.05);
     }
+    .child-accordion .accordion-item {
+        border-radius: 0 !important;
+        border-left: none;
+        border-right: none;
+    }
+
+    /* --- Hacker-style Terminal Window --- */
     .terminal-window {
-        background-color: #0f141c;
-        color: #00ff66;
-        font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+        background-color: #1e1e1e;
+        color: #00ff00;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
         border-radius: 6px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         overflow: hidden;
-        margin-top: 15px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        border: 1px solid #333;
+        margin-top: 10px;
     }
     .terminal-header {
-        background-color: #1a2333;
-        padding: 8px 16px;
+        background-color: #2d2d2d;
+        padding: 8px 15px;
         display: flex;
         align-items: center;
-        border-bottom: 1px solid #233147;
+        border-bottom: 1px solid #222;
+        user-select: none;
     }
     .terminal-header .dot {
-        height: 10px;
-        width: 10px;
+        height: 12px;
+        width: 12px;
         border-radius: 50%;
         display: inline-block;
-        margin-right: 6px;
+        margin-right: 8px;
     }
     .terminal-header .dot.red { background-color: #ff5f56; }
     .terminal-header .dot.yellow { background-color: #ffbd2e; }
     .terminal-header .dot.green { background-color: #27c93f; }
     .terminal-header .title {
-        color: #8c9cb3;
+        color: #aaaaaa;
         font-size: 11px;
         margin-left: 10px;
-        font-weight: 500;
+        font-weight: bold;
     }
     .terminal-body {
-        padding: 18px;
+        padding: 15px;
         margin: 0;
         white-space: pre-wrap;
         word-break: break-all;
         font-size: 0.85rem;
-        line-height: 1.5;
+        line-height: 1.45;
         border: none;
+        background: none;
+        color: #a6e22e;
     }
-    .site-tree-container {
-        max-height: 400px;
-        overflow-y: auto;
-        font-family: 'Fira Code', 'Consolas', monospace;
-        font-size: 0.9rem;
-    }
-    .site-tree-container ul {
-        list-style: none;
-        padding-left: 1.5rem;
-        margin-top: 0.25rem;
-        border-left: 1px dashed rgba(var(--bs-primary-rgb), 0.2);
-    }
-    .site-tree-container li {
-        margin-bottom: 0.25rem;
-        position: relative;
-    }
-    @keyframes pulse-ring {
+
+    /* --- Pulse Red Vulnerability Alert --- */
+    @keyframes pulse-red {
         0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
         70% { box-shadow: 0 0 0 8px rgba(220, 53, 69, 0); }
         100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
     }
     .animate-pulse {
-        animation: pulse-ring 2s infinite;
+        animation: pulse-red 1.5s infinite;
     }
-    .accordion-item {
-        opacity: 0;
-        transform: translateY(10px);
+
+    /* --- Visual CSS Directory Tree --- */
+    .site-tree-container {
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        background-color: var(--bs-tertiary-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 6px;
+        padding: 15px;
+    }
+    .site-tree-container ul {
+        list-style-type: none;
+        padding-left: 20px;
+        position: relative;
+        margin: 0;
+    }
+    .site-tree-container ul::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 8px;
+        width: 1px;
+        height: 100%;
+        background-color: var(--bs-border-color-translucent);
+    }
+    .site-tree-container li {
+        position: relative;
+        padding-left: 15px;
+        margin-top: 6px;
+        font-size: 0.9rem;
+    }
+    .site-tree-container li::before {
+        content: "";
+        position: absolute;
+        top: 12px;
+        left: -12px;
+        width: 10px;
+        height: 1px;
+        background-color: var(--bs-border-color-translucent);
+    }
+    .site-tree-container li:last-child::before {
+        background-color: var(--bs-tertiary-bg);
+        height: auto;
+    }
+    .site-tree-container li:last-child {
+        background-color: var(--bs-light);
     }
 </style>
 
 <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="mb-0 fw-bold text-gradient">Scan Result Overview</h1>
-            <p class="lead mb-0 text-muted">Analysis of security context #{{ scan.id }}</p>
+            <h1 class="mb-0">Scan Details</h1>
+            <p class="lead mb-0">Live results for scan #{{ scan.id }}</p>
         </div>
         <div>
-            <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2 shadow-sm">
-                <i class="bi bi-file-earmark-pdf-fill me-1"></i> Export PDF
+            <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
+                <i class="bi bi-file-earmark-pdf"></i> Export PDF
             </a>
-            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary shadow-sm">
-                <i class="bi bi-arrow-left me-1"></i> Back to Dashboard
+            <a href="{{ url_for('main.dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Dashboard
             </a>
         </div>
     </div>
 
-    <div class="card bg-body-secondary border-0 shadow-sm mb-4">
+    <div class="card bg-body-secondary mb-4">
         <div class="card-body">
-            <div class="row align-items-center">
+            <div class="row">
                 <div class="col-md-5">
-                    <span class="text-uppercase small text-muted d-block mb-1">Target Address</span>
-                    <strong class="font-monospace text-primary" style="font-size: 1.15rem;">{{ scan.target_url }}</strong>
+                    <strong>Target:</strong>
+                    <p class="font-monospace mb-0">{{ scan.target_url }}</p>
                 </div>
                 <div class="col-md-2">
-                    <span class="text-uppercase small text-muted d-block mb-1">Scope Mode</span>
-                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2">{{ scan.scan_mode | upper }}</span>
+                    <strong>Mode:</strong>
+                    <p class="mb-0"><span class="badge text-bg-secondary">{{ scan.scan_mode | upper }}</span></p>
                 </div>
                 <div class="col-md-3">
-                    <span class="text-uppercase small text-muted d-block mb-1">Execution Time</span>
-                    <p id="start-time" class="mb-0 text-dark-emphasis font-monospace">{{ scan.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                    <strong>Started:</strong>
+                    <p id="start-time" class="mb-0">{{ scan.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                 </div>
-                <div class="col-md-2 text-end">
-                    <span class="text-uppercase small text-muted d-block mb-1">Status Code</span>
-                    <span id="scan-status-badge" class="badge px-3 py-2">Loading...</span>
+                <div class="col-md-2">
+                    <strong>Status:</strong>
+                    <p class="mb-0"><span id="scan-status-badge" class="badge">Loading...</span></p>
                 </div>
             </div>
-            <div class="row mt-4">
+            <div class="row mt-3">
                 <div class="col">
-                    <div id="progress-container" class="progress" style="height: 6px;" role="progressbar">
-                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-gradient" style="width: 0%"></div>
+                    <strong>Progress:</strong>
+                    <div id="progress-container" class="progress" role="progressbar" aria-label="Scan progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
                     </div>
-                    <small id="progress-message" class="text-secondary mt-2 d-block">Initializing verification engine...</small>
+                    <small id="progress-message" class="text-body-secondary mt-1 d-block">Initializing scan...</small>
                 </div>
             </div>
         </div>
     </div>
 
     {% if scan.site_tree %}
-    <h3 class="mb-3 mt-4 fw-bold text-secondary"><i class="bi bi-diagram-3-fill me-2 text-primary"></i>Site Structure Map</h3>
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-body bg-light-subtle site-tree-container border rounded">
-            <i class="bi bi-globe2 me-2 text-primary"></i> <strong class="text-dark-emphasis">{{ scan.target_url }}</strong>
+    <h3 class="mb-3 mt-4">Site Structure (Crawled Map)</h3>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body site-tree-container">
+            <i class="bi bi-globe me-2 text-primary"></i> <strong>{{ scan.target_url }}</strong>
 
             {% macro render_tree(tree_node) %}
-                <ul>
+                <ul class="site-tree">
                 {% for key, child in tree_node.items() %}
                     <li>
                         {% if child %}
-                            <i class="bi bi-folder-fill text-warning me-1"></i> <span class="fw-bold">{{ key }}</span>/
+                            <i class="bi bi-folder-fill text-warning me-1"></i> {{ key }}/
                             {{ render_tree(child) }}
                         {% else %}
-                            <i class="bi bi-file-earmark-code text-secondary me-1"></i> <span>{{ key }}</span>
+                            <i class="bi bi-file-earmark-text text-secondary me-1"></i> {{ key }}
                         {% endif %}
                     </li>
                 {% endfor %}
@@ -168,13 +221,13 @@
         {% endif %}
     {% endfor %}
 
-    <h3 class="mb-3 fw-bold text-secondary"><i class="bi bi-shield-radar me-2 text-primary"></i>Reconnaissance Information</h3>
+    <h3 class="mb-3">Reconnaissance Findings</h3>
 
     <div class="row mb-4">
         <div class="col-md-6">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-header bg-dark text-white border-0 py-3">
-                    <i class="bi bi-hdd-network me-2"></i> Infrastructure Configuration
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-hdd-network me-2"></i> Infrastructure & Ports
                 </div>
                 <div class="card-body p-0">
                     <ul class="list-group list-group-flush">
@@ -182,34 +235,37 @@
                             {% set details = finding.get_details_as_dict() %}
 
                             {% if finding.tool == 'wafw00f' %}
-                                <li class="list-group-item bg-danger-subtle border-start border-danger border-4 py-3">
-                                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                                <li class="list-group-item bg-danger-subtle border-start border-danger border-4">
+                                    <div class="d-flex w-100 justify-content-between">
                                         <span class="text-danger fw-bold"><i class="bi bi-fire me-2"></i>WAF Detected</span>
-                                        <span class="badge text-bg-danger px-3 py-1">{{ details.firewall }}</span>
+                                        <span class="badge text-bg-danger">{{ details.firewall }}</span>
                                     </div>
-                                    <small class="text-muted d-block ms-4">Developer Signature: {{ details.manufacturer }}</small>
+                                    <small class="text-muted">Manufacturer: {{ details.manufacturer }}</small>
                                 </li>
 
                             {% elif finding.tool == 'nmap' %}
                                 {% set is_vuln = details.port in vulnerable_ports %}
-                                <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %} py-3">
+
+                                <li class="list-group-item {% if is_vuln %}bg-warning-subtle border-start border-warning border-4{% endif %}">
                                     <div class="d-flex w-100 justify-content-between align-items-center mb-1">
                                         <div class="d-flex align-items-center">
                                             <span class="badge bg-dark me-2" style="min-width: 60px;">{{ details.port }}/{{ details.protocol }}</span>
                                             <span class="fw-bold text-primary">{{ details.service_name | upper }}</span>
                                         </div>
+
                                         {% if is_vuln %}
-                                            <span class="badge bg-danger animate-pulse px-3 py-1">
+                                            <span class="badge bg-danger animate-pulse">
                                                 <i class="bi bi-exclamation-triangle-fill"></i> VULN
                                             </span>
                                         {% endif %}
                                     </div>
+
                                     <div class="small text-muted ms-1">
                                         {% if details.display_string and details.display_string != details.service_name %}
                                             <i class="bi bi-info-circle me-1" style="font-size: 0.8rem;"></i>
                                             {{ details.display_string }}
                                         {% else %}
-                                            <span class="fst-italic opacity-50">No version info available</span>
+                                            <span class="fst-italic opacity-50">No version info</span>
                                         {% endif %}
                                     </div>
                                 </li>
@@ -217,7 +273,7 @@
                         {% endfor %}
 
                         {% if not scan.recon_findings | selectattr('tool', 'in', ['wafw00f', 'nmap']) | list %}
-                            <li class="list-group-item text-center text-muted fst-italic py-4">No active infrastructure nodes identified.</li>
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No infrastructure data found.</li>
                         {% endif %}
                     </ul>
                 </div>
@@ -225,19 +281,20 @@
         </div>
 
         <div class="col-md-6">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-header bg-dark text-white border-0 py-3">
-                    <i class="bi bi-globe me-2"></i> Active DNS Directory
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-globe me-2"></i> DNS Records
                 </div>
                 <div class="card-body p-0">
                     <ul class="list-group list-group-flush">
                         {% set dns_findings = scan.recon_findings | selectattr('tool', 'equalto', 'dnsrecon') | list %}
+
                         {% for finding in dns_findings %}
                             {% set details = finding.get_details_as_dict() %}
-                            <li class="list-group-item py-3">
+                            <li class="list-group-item">
                                 <div class="row align-items-center">
-                                    <div class="col-3 text-end">
-                                        <span class="badge text-bg-info px-3 py-1 w-100">{{ details.type }}</span>
+                                    <div class="col-3">
+                                        <span class="badge text-bg-info w-100">{{ details.type }}</span>
                                     </div>
                                     <div class="col-9 font-monospace text-break" style="font-size: 0.85em;">
                                         {% if details.type in ['A', 'AAAA'] %}
@@ -257,7 +314,7 @@
                         {% endfor %}
 
                         {% if not dns_findings %}
-                            <li class="list-group-item text-center text-muted fst-italic py-4">No distinct DNS records fetched.</li>
+                            <li class="list-group-item text-center text-muted fst-italic py-3">No DNS records found.</li>
                         {% endif %}
                     </ul>
                 </div>
@@ -267,28 +324,30 @@
 
     {% set nmap_vulns = scan.recon_findings | selectattr('tool', 'equalto', 'nmap-vuln') | list %}
     {% if nmap_vulns %}
-    <div class="card border-0 mb-4 shadow-sm">
-        <div class="card-header text-bg-danger border-0 d-flex align-items-center py-3">
+    <div class="card border-danger mb-4 shadow">
+        <div class="card-header text-bg-danger d-flex align-items-center">
             <i class="bi bi-radioactive fs-4 me-2"></i>
-            <h5 class="mb-0 fw-bold">Critical Infrastructure Vulnerabilities (Nmap NSE)</h5>
+            <h5 class="mb-0">Critical Infrastructure Vulnerabilities (Nmap NSE)</h5>
         </div>
-        <div class="card-body p-0 bg-light-subtle">
+        <div class="card-body p-0 bg-light">
             <div class="accordion accordion-flush" id="nmapVulnAccordion">
                 {% for finding in nmap_vulns %}
                     {% set details = finding.get_details_as_dict() %}
-                    <div class="accordion-item border-bottom">
+                    <div class="accordion-item">
                         <h2 class="accordion-header" id="headingNmap{{ finding.id }}">
-                            <button class="accordion-button collapsed fw-bold text-danger py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
+                            <button class="accordion-button collapsed fw-bold text-danger" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNmap{{ finding.id }}">
                                 <span class="badge bg-danger me-2">PORT {{ details.port }}</span>
-                                <span class="font-monospace small text-truncate">{{ finding.finding_type | replace('NSE: ', '') }}</span>
+                                <span class="font-monospace">{{ finding.finding_type | replace('NSE: ', '') }}</span>
                             </button>
                         </h2>
                         <div id="collapseNmap{{ finding.id }}" class="accordion-collapse collapse" data-bs-parent="#nmapVulnAccordion">
                             <div class="accordion-body p-0">
-                                <div class="terminal-window m-3 mt-0">
+                                <div class="terminal-window">
                                     <div class="terminal-header">
-                                        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-                                        <span class="title">nmap_output</span>
+                                        <span class="dot red"></span>
+                                        <span class="dot yellow"></span>
+                                        <span class="dot green"></span>
+                                        <span class="title">nmap output</span>
                                     </div>
                                     <pre class="terminal-body"><code>{{ details.output }}</code></pre>
                                 </div>
@@ -302,20 +361,20 @@
     {% endif %}
     {% endif %}
 
-    <h3 class="mb-3 fw-bold text-secondary"><i class="bi bi-bug-fill me-2 text-primary"></i>Application Vulnerabilities</h3>
-    <div id="vulnerabilities-accordion" class="accordion shadow-sm border rounded overflow-hidden">
+    <h3 class="mb-3">Application Vulnerabilities</h3>
+    <div id="vulnerabilities-accordion" class="accordion shadow-sm">
 
-        <div id="loading-state" class="text-center p-5 bg-body-secondary border-0">
+        <div id="loading-state" class="text-center p-5 bg-body-secondary border rounded">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-3 text-body-secondary mb-0 fw-bold">Analyzing dynamic application security context...</p>
+            <p class="mt-2 text-body-secondary">Scanning & Analyzing...</p>
         </div>
 
-        <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none border-0 mb-0" role="alert">
-             <i class="bi bi-shield-check fs-3 d-block mb-2"></i>
-             <h4 class="alert-heading fw-bold">No Weaknesses Discovered</h4>
-             <p class="mb-0">The validation engine did not detect any vulnerabilities inside the parsed application boundaries.</p>
+        <div id="no-vulns-found" class="alert alert-success text-center p-4 d-none" role="alert">
+             <i class="bi bi-shield-check fs-3"></i>
+             <h4 class="alert-heading mt-2">Scan Complete</h4>
+             <p>No application-level vulnerabilities were detected.</p>
         </div>
     </div>
 
@@ -324,15 +383,12 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- Import AnimeJS from reliable CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-
 <script>
     async function triggerAiRemediation(groupHash, firstVulnId) {
         const btn = document.getElementById(`btn-ai-${groupHash}`);
         const contentArea = document.getElementById(`ai-content-${groupHash}`);
 
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is analyzing context...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is analyzing...';
         btn.disabled = true;
 
         try {
@@ -345,12 +401,12 @@
                 const safeExplanation = escapeHtml(data.explanation);
 
                 contentArea.innerHTML = `
-                    <div class="p-3 bg-body-tertiary rounded border border-success text-start" id="ai-remedy-output-${groupHash}" style="opacity: 0;">
-                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle-fill me-2"></i>Analysis Complete</h6>
+                    <div class="p-3 bg-body-tertiary rounded border border-success text-start">
+                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
                         <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
 
-                        <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Patch</h6>
-                        <div class="terminal-window mt-1">
+                        <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
+                        <div class="terminal-window">
                             <div class="terminal-header">
                                 <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
                                 <span class="title">secure_code.patch</span>
@@ -359,23 +415,13 @@
                         </div>
                     </div>
                 `;
-
-                // Animate remedy appearance
-                anime({
-                    targets: `#ai-remedy-output-${groupHash}`,
-                    opacity: [0, 1],
-                    translateY: [15, 0],
-                    duration: 600,
-                    easing: 'easeOutQuad'
-                });
-
             } else {
-                btn.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> Generation Failed. Retry.';
+                btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Failed. Try Again.';
                 btn.classList.replace('btn-outline-primary', 'btn-outline-danger');
                 btn.disabled = false;
             }
         } catch (error) {
-            btn.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> Communication Error.';
+            btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error. Try Again.';
             btn.disabled = false;
         }
     }
@@ -418,7 +464,7 @@
 
         function updateStatusBadge(status) {
             statusBadge.textContent = status;
-            statusBadge.className = 'badge px-3 py-2';
+            statusBadge.className = 'badge';
             if (status === 'COMPLETED') {
                 statusBadge.classList.add('text-bg-success');
             } else if (status === 'RUNNING') {
@@ -452,31 +498,31 @@
                 try { details = JSON.parse(details); } catch (e) { details = {}; }
             }
 
-            let detailsHtml = '<ul class="list-group list-group-flush bg-transparent">';
+            let detailsHtml = '<ul class="list-group list-group-flush">';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
                     if (key === 'ai_suggestion') continue;
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
                     displayValue = escapeHtml(displayValue);
-                    detailsHtml += `<li class="list-group-item bg-transparent"><strong>${escapeHtml(key)}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
+                    detailsHtml += `<li class="list-group-item"><strong>${escapeHtml(key)}:</strong> <code class="text-break" style="white-space: pre-wrap;">${displayValue}</code></li>`;
                 }
             } else {
-                 detailsHtml += `<li class="list-group-item bg-transparent"><code>${escapeHtml(details)}</code></li>`;
+                 detailsHtml += `<li class="list-group-item"><code>${escapeHtml(details)}</code></li>`;
             }
             detailsHtml += '</ul>';
 
             const childHtml = `
-                <div class="accordion-item border-0 border-bottom bg-transparent" id="child-item-${vuln.id}">
+                <div class="accordion-item border-0 border-bottom">
                     <h2 class="accordion-header" id="heading-child-${vuln.id}">
                         <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}">
                             <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" style="font-size: 0.75em;">${vuln.severity}</span>
-                            <span class="fw-bold me-2 text-truncate" style="max-width: 300px;">${escapeHtml(vuln.subcategory || 'Observation')}</span>
+                            <span class="fw-bold me-2 text-truncate" style="max-width: 300px;">${escapeHtml(vuln.subcategory || 'Issue Instance')}</span>
                             <span class="text-muted text-truncate small">${escapeHtml(vuln.url)}</span>
                         </button>
                     </h2>
                     <div id="collapse-child-${vuln.id}" class="accordion-collapse collapse" data-bs-parent="#child-accordion-${groupHash}">
-                        <div class="accordion-body p-3">
-                            <p class="mb-2 small"><strong>Scope Endpoint:</strong> <a href="${vuln.url}" target="_blank" class="font-monospace">${escapeHtml(vuln.url)}</a></p>
+                        <div class="accordion-body p-3 bg-light">
+                            <p class="mb-2"><strong>Target URL:</strong> <a href="${vuln.url}" target="_blank">${escapeHtml(vuln.url)}</a></p>
                             ${detailsHtml}
                         </div>
                     </div>
@@ -518,7 +564,7 @@
                     aiTabContent = `
                     <div class="tab-pane fade" id="ai-tab-${groupHash}" role="tabpanel">
                         <div class="mt-3 p-3 bg-body-tertiary rounded border border-success">
-                            <h6 class="fw-bold text-success"><i class="bi bi-check-circle-fill me-2"></i>Analysis Complete</h6>
+                            <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
                             <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
                             <h6 class="fw-bold mt-3"><i class="bi bi-code-slash me-2 text-success"></i>Suggested Fix</h6>
                             <div class="terminal-window">
@@ -533,28 +579,28 @@
                 } else {
                     aiTabContent = `
                     <div class="tab-pane fade" id="ai-tab-${groupHash}" role="tabpanel">
-                        <div class="mt-4 text-center p-4" id="ai-content-${groupHash}">
-                            <p class="text-muted mb-3"><i class="bi bi-magic fs-4 d-block mb-2 text-primary"></i> Deploy local intelligence engine to analyze the validation context and design a target remedy.</p>
-                            <button id="btn-ai-${groupHash}" class="btn btn-outline-primary shadow-sm" onclick="triggerAiRemediation('${groupHash}', ${vuln.id})">
-                                <i class="bi bi-cpu-fill me-1"></i> Analyze Category
+                        <div class="mt-4 text-center" id="ai-content-${groupHash}">
+                            <p class="text-muted mb-3"><i class="bi bi-magic fs-4 d-block mb-2"></i> Use DeepSeek AI to analyze this vulnerability category and generate a custom fix.</p>
+                            <button id="btn-ai-${groupHash}" class="btn btn-outline-primary" onclick="triggerAiRemediation('${groupHash}', ${vuln.id})">
+                                <i class="bi bi-cpu"></i> Generate AI Fix for ${escapeHtml(groupName)}
                             </button>
                         </div>
                     </div>`;
                 }
 
                 const parentHtml = `
-                    <div class="accordion-item mb-3 border rounded shadow-sm overflow-hidden" id="group-wrapper-${groupHash}">
+                    <div class="accordion-item mb-2 border rounded" id="group-wrapper-${groupHash}">
                         <h2 class="accordion-header" id="heading-group-${groupHash}">
-                            <button class="accordion-button collapsed shadow-none py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-group-${groupHash}">
+                            <button class="accordion-button collapsed shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-group-${groupHash}">
                                 <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" id="group-severity-badge-${groupHash}">${vuln.severity}</span>
                                 ${cvssBadge}
-                                <span class="fw-bold me-2 text-dark-emphasis">${escapeHtml(groupName)}</span>
+                                <span class="fw-bold me-2">${escapeHtml(groupName)}</span>
                                 <span class="badge rounded-pill text-bg-secondary ms-auto" id="group-count-badge-${groupHash}">1 Issue</span>
                             </button>
                         </h2>
                         <div id="collapse-group-${groupHash}" class="accordion-collapse collapse" data-bs-parent="#vulnerabilities-accordion">
                             <div class="accordion-body pt-0">
-                                <div class="mb-2 mt-3">
+                                <div class="mb-3 mt-3">
                                     ${cweBadge}
                                     ${vuln.cvss_vector ? `<small class="text-muted font-monospace border rounded px-2 py-1 bg-light">${vuln.cvss_vector}</small>` : ''}
                                 </div>
@@ -566,9 +612,9 @@
                                     ${aiTabNav}
                                 </ul>
 
-                                <div class="tab-content pt-2">
+                                <div class="tab-content pt-3">
                                     <div class="tab-pane fade show active" id="details-pane-${groupHash}" role="tabpanel">
-                                        <div class="accordion accordion-flush child-accordion border rounded mt-2" id="child-accordion-${groupHash}">
+                                        <div class="accordion accordion-flush child-accordion border rounded" id="child-accordion-${groupHash}">
                                             ${childHtml}
                                         </div>
                                     </div>
@@ -579,28 +625,9 @@
                     </div>
                 `;
                 accordion.insertAdjacentHTML('beforeend', parentHtml);
-
-                // AnimeJS Entrance Animation for New Group
-                anime({
-                    targets: `#group-wrapper-${groupHash}`,
-                    opacity: [0, 1],
-                    translateY: [20, 0],
-                    duration: 600,
-                    easing: 'easeOutCubic'
-                });
-
             } else {
                 groupedVulns[groupName].count++;
-                const countBadge = document.getElementById(`group-count-badge-${groupHash}`);
-                countBadge.innerText = `${groupedVulns[groupName].count} Issues`;
-
-                // AnimeJS pulse on badge count update
-                anime({
-                    targets: countBadge,
-                    scale: [1, 1.25, 1],
-                    duration: 350,
-                    easing: 'easeInOutQuad'
-                });
+                document.getElementById(`group-count-badge-${groupHash}`).innerText = `${groupedVulns[groupName].count} Issues`;
 
                 const currentSeverityWeight = SEVERITY_WEIGHTS[groupedVulns[groupName].maxSeverity.toLowerCase()] || 0;
                 const newSeverityWeight = SEVERITY_WEIGHTS[vuln.severity.toLowerCase()] || 0;
@@ -610,28 +637,10 @@
                     const badgeEl = document.getElementById(`group-severity-badge-${groupHash}`);
                     badgeEl.innerText = vuln.severity;
                     badgeEl.className = `badge ${getSeverityBadgeClass(vuln.severity)} me-2`;
-
-                    // Pulse main badge
-                    anime({
-                        targets: badgeEl,
-                        scale: [1, 1.2, 1],
-                        duration: 300,
-                        easing: 'easeOutQuad'
-                    });
                 }
 
                 const childContainer = document.getElementById(`child-accordion-${groupHash}`);
                 childContainer.insertAdjacentHTML('beforeend', childHtml);
-
-                // AnimeJS animation for new child items
-                const newChildId = `#child-item-${vuln.id}`;
-                anime({
-                    targets: newChildId,
-                    opacity: [0, 1],
-                    translateX: [-10, 0],
-                    duration: 400,
-                    easing: 'easeOutQuad'
-                });
             }
         }
 
