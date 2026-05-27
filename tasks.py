@@ -14,7 +14,8 @@ from factory import create_app, db
 from models import ReconFinding, Scan, Vulnerability
 from scanner_core.scanner import Scanner
 from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
-
+from integrations.playwright_crawler import PlaywrightCrawler
+from utils.swagger_parser import discover_api_from_swagger
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
@@ -139,19 +140,26 @@ def run_scan_task(scan_id: int):
             else:
                 scraped_urls.add(scan.target_url)
 
-            # 2. LUÔN CHẠY Dynamic Crawler (Cả Single và Full Mode)
-            print(f"[Scan ID: {scan_id}] Running Dynamic Browser Crawler (Selenium)...", flush=True)
-            dyn_crawler = DynamicCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
-            hidden_apis = dyn_crawler.crawl()
-            if hidden_apis:
-                scraped_forms.extend(hidden_apis)
+                # --- 2. SỬ DỤNG PLAYWRIGHT (Bắt API động của SPA) ---
+                print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
+                pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
+                hidden_apis = pw_crawler.crawl()
+                if hidden_apis:
+                    scraped_forms.extend(hidden_apis)
 
-            # Lưu Tree & Form
-            site_tree = build_site_tree(list(scraped_urls))
-            scan.site_tree = json.dumps(site_tree)
-            scan.discovered_forms = json.dumps(scraped_forms)
-            db.session.commit()
-            print(f"  [Discovery] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}", flush=True)
+                # --- 3. SỬ DỤNG SWAGGER DISCOVERY (Tự parse tài liệu API) ---
+                swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
+                if swagger_forms:
+                    scraped_forms.extend(swagger_forms)
+                    print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
+
+                # Lưu Tree & Form
+                site_tree = build_site_tree(list(scraped_urls))
+                scan.site_tree = json.dumps(site_tree)
+                scan.discovered_forms = json.dumps(scraped_forms)
+                db.session.commit()
+                print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
+                      flush=True)
 
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)

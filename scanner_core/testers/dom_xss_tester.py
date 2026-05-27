@@ -39,7 +39,6 @@ class DomXssTester(BaseTester):
         try:
             driver.get(f"{base_url}/favicon.ico")
             driver.add_cookie({'name': 'ngrok-skip-browser-warning', 'value': 'true', 'path': '/'})
-
             for cookie in self.session.cookies:
                 driver.add_cookie({
                     'name': cookie.name,
@@ -124,8 +123,6 @@ class DomXssTester(BaseTester):
     def _check_alert(self, driver, url):
         try:
             driver.get(url)
-
-            # [QUAN TRỌNG] Tăng thời gian chờ lên 3 giây để Angular render xong DOM và kích hoạt Payload
             time.sleep(3)
 
             try:
@@ -144,6 +141,7 @@ class DomXssTester(BaseTester):
 
             alert = driver.switch_to.alert
             alert.accept()
+            # [SỬA LỖI]: Cứ thấy có alert bật lên thì tính là thành công
             return True
 
         except (NoAlertPresentException, TimeoutException):
