@@ -27,6 +27,14 @@ class PlaywrightCrawler:
             inputs = []
             is_api = False
 
+            # --- [MỚI] Bắt Headers quan trọng từ request gốc của trình duyệt ---
+            raw_headers = request.headers
+            captured_headers = {}
+            for k, v in raw_headers.items():
+                if k.lower() in ['authorization', 'content-type', 'accept', 'x-csrf-token']:
+                    captured_headers[k] = v
+            # -------------------------------------------------------------------
+
             post_data = request.post_data
             if post_data:
                 try:
@@ -47,13 +55,15 @@ class PlaywrightCrawler:
                 for k, v in parse_qsl(query):
                     inputs.append({'name': k, 'value': v, 'type': 'text'})
 
+            # Dù không có input, một endpoint POST/PUT vẫn là một attack point
             if inputs or method != 'GET':
                 api_finding = {
                     'type': 'form',
                     'url': url.split('?')[0],
                     'method': method,
                     'inputs': inputs,
-                    'is_api': is_api or 'application/json' in request.headers.get('content-type', '').lower()
+                    'is_api': is_api or 'application/json' in request.headers.get('content-type', '').lower(),
+                    'headers': captured_headers  # Truyền header xuống Core Scanner
                 }
 
                 sig = f"{method}:{api_finding['url']}"
@@ -62,7 +72,7 @@ class PlaywrightCrawler:
                     self.discovered_apis.append(api_finding)
 
     def crawl(self):
-        print(f"  [Playwright Crawler] Launching modern headless browser on {self.target_url}...")
+        print(f"  [Playwright Crawler] Launching modern headless browser on {self.target_url}...", flush=True)
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -88,7 +98,6 @@ class PlaywrightCrawler:
 
                 if token_value:
                     page.evaluate(f"localStorage.setItem('token', '{token_value}')")
-                    print(f"  [Playwright] Injected JWT token into localStorage.")
 
                 if self.scan_mode == 'single':
                     test_routes = [self.target_url]
@@ -102,11 +111,9 @@ class PlaywrightCrawler:
                     try:
                         page.goto(url, wait_until="networkidle", timeout=8000)
 
-                        page.evaluate("""
-                            document.querySelectorAll('.cc-dismiss, .close-dialog, [aria-label="Close Welcome Banner"]').forEach(b => b.click());
-                        """)
+                        page.evaluate(
+                            "document.querySelectorAll('.cc-dismiss, .close-dialog, [aria-label=\"Close Welcome Banner\"]').forEach(b => b.click());")
 
-                        # Sử dụng API tương tác thật của Playwright để kích hoạt Angular Binding
                         inputs = page.query_selector_all('input')
                         for inp in inputs:
                             try:
@@ -127,7 +134,6 @@ class PlaywrightCrawler:
                             except Exception:
                                 pass
 
-                        # Kích hoạt ô tìm kiếm đặc trưng của Material UI / Juice Shop
                         search_button = page.query_selector('#searchQuery')
                         if search_button:
                             search_button.click()
@@ -138,9 +144,8 @@ class PlaywrightCrawler:
                         for btn in buttons:
                             try:
                                 btn_text = btn.inner_text().lower()
-                                if any(k in btn_text for k in ['log in', 'login', 'submit', 'register']):
+                                if any(k in btn_text for k in ['log in', 'login', 'submit', 'register', 'search']):
                                     btn.click()
-                                    break
                             except:
                                 pass
 
@@ -149,9 +154,9 @@ class PlaywrightCrawler:
                         pass
 
             except Exception as e:
-                logger.error(f"Playwright routing error: {e}")
+                pass
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} APIs/Forms via Deep Interception!")
+        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms!", flush=True)
         return self.discovered_apis

@@ -20,10 +20,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ]
 
 
@@ -46,7 +43,6 @@ class Scanner:
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
         self.threads = threads
-
         self.session = self._create_session()
 
         if cookies:
@@ -57,12 +53,9 @@ class Scanner:
             self.visited_urls.add(self.base_url)
 
         self.discovered_forms = discovered_forms if discovered_forms else []
-
         self.lock = threading.Lock()
-
         self.payload_config = self._load_payload_config()
         self.testers = self._load_testers()
-        logger.info(f"Loaded {len(self.testers)} tester modules.")
 
     def _create_session(self) -> requests.Session:
         session = requests.Session()
@@ -71,14 +64,10 @@ class Scanner:
         session.mount("https://", adapter)
 
         spoofed_ip = f"{random.randint(11, 250)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
-
         session.headers.update({
             'User-Agent': random.choice(USER_AGENTS),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'X-Forwarded-For': spoofed_ip,
-            'X-Real-IP': spoofed_ip,
-            'Client-IP': spoofed_ip,
             'ngrok-skip-browser-warning': 'true'
         })
         session.verify = False
@@ -91,23 +80,18 @@ class Scanner:
                 if '=' in item:
                     name, value = item.strip().split('=', 1)
                     cookie_dict[name] = value
-
                     if name.lower() in ['token', 'jwt', 'bearer'] or value.startswith('eyJ'):
                         self.session.headers.update({'Authorization': f'Bearer {value}'})
-                        logger.info("JWT Token detected. Added Authorization: Bearer header.")
-
             self.session.cookies.update(cookie_dict)
-            logger.info(f"Authenticated Scan enabled. Cookies applied: {list(cookie_dict.keys())}")
-        except Exception as e:
-            logger.error(f"Failed to parse cookies: {e}")
+        except Exception:
+            pass
 
     def _load_payload_config(self) -> dict:
         config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'payloads.yml')
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
-        except Exception as e:
-            logger.error(f"Error loading payload config: {e}")
+        except Exception:
             return {}
 
     def _load_testers(self) -> List:
@@ -124,82 +108,39 @@ class Scanner:
                         if issubclass(obj, BaseTester) and obj is not BaseTester:
                             tester_config = self.payload_config.get(config_key, {})
                             testers_list.append(obj(self.session, tester_config))
-                except Exception as e:
-                    logger.error(f"Failed to load tester from {module_name}: {e}")
+                except Exception:
+                    pass
         return testers_list
 
     def _normalize_url(self, url: str) -> str:
         return url
 
-    def _is_valid_url(self, url: str) -> bool:
-        parsed = urlparse(url)
-        if not all([parsed.scheme, parsed.netloc]): return False
-        if parsed.netloc != self.domain: return False
-        static_extensions = ['.css', '.jpg', '.jpeg', '.png', '.gif', '.svg', '.ico', '.woff', '.ttf', '.eot', '.pdf',
-                             '.zip', '.mp4']
-        if any(parsed.path.lower().endswith(ext) for ext in static_extensions): return False
-        return True
-
-    def crawl(self, url: str, current_depth: int):
-        if current_depth > self.depth:
-            return
-
-        normalized_url = self._normalize_url(url)
-        with self.lock:
-            if normalized_url in self.visited_urls:
-                return
-            self.visited_urls.add(normalized_url)
-
-        try:
-            response = self.session.get(normalized_url, timeout=10)
-            if 'text/html' not in response.headers.get('Content-Type', ''):
-                return
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-            for link in soup.find_all('a', href=True):
-                absolute_link = urljoin(self.base_url, link['href'])
-                if self._is_valid_url(absolute_link):
-                    self.crawl(absolute_link, current_depth + 1)
-        except requests.RequestException:
-            pass
-
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
-        logger.info(f"--- Starting Scan on {self.base_url} ---")
-
-        if len(self.visited_urls) <= 1 and self.depth > 0:
-            logger.info("Phase 1: Fallback Crawling for URLs...")
-            self.crawl(self.base_url, 0)
-
-        logger.info(f"URLs to test: {len(self.visited_urls)}")
-        logger.info(f"Forms to test: {len(self.discovered_forms)}")
+        print("\n" + "=" * 50, flush=True)
+        print("🎯 TARGET ATTACK POINTS SECURED", flush=True)
+        print("=" * 50, flush=True)
+        for form in self.discovered_forms:
+            params = [i['name'] for i in form.get('inputs', [])]
+            print(f" [+] {form['method']} {form['url']} | Params: {params}", flush=True)
+        print("=" * 50 + "\n", flush=True)
 
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = {}
             for tester in self.testers:
                 tester_name = tester.__class__.__name__
 
-                # 1. Chạy test trên tất cả URLs
+                # 1. URL Injection
                 for url in self.visited_urls:
-                    # [DEBUG LOG]
-                    print(f"  [DEBUG-CORE] Queueing {tester_name}.test() on GET {url}", flush=True)
                     futures[executor.submit(tester.test, url)] = (tester_name, url)
 
-                # 2. Chạy test trên tất cả POST Forms
+                # 2. Form/API Injection
                 if hasattr(tester, 'test_form'):
                     for form in self.discovered_forms:
-                        # [DEBUG LOG]
-                        print(f"  [DEBUG-CORE] Queueing {tester_name}.test_form() on {form['method']} {form['url']}",
-                              flush=True)
                         futures[executor.submit(tester.test_form, form)] = (tester_name,
                                                                             f"{form['url']} [{form['method']}]")
 
-            total_tasks = len(futures)
-            completed_tasks = 0
-
             for future in as_completed(futures):
                 tester_name, url_tested = futures[future]
-                completed_tasks += 1
-
                 try:
                     results = future.result()
                     if not results: continue
@@ -207,9 +148,7 @@ class Scanner:
 
                     for vuln in results:
                         if isinstance(vuln, Vulnerability):
-                            if vulnerability_callback and callable(vulnerability_callback):
+                            if vulnerability_callback:
                                 vulnerability_callback(vuln)
-                except Exception as e:
-                    logger.error(f"Error running tester '{tester_name}' on {url_tested}: {e}")
-
-        logger.info("--- Scan Finished ---")
+                except Exception:
+                    pass
