@@ -91,7 +91,7 @@ class PlaywrightCrawler:
             page.on("request", self._handle_request)
 
             try:
-                page.goto(self.base_url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(self.base_url, wait_until="domcontentloaded", timeout=10000)
                 page.wait_for_timeout(2000)
 
                 if token_value:
@@ -107,149 +107,130 @@ class PlaywrightCrawler:
                         f"{self.base_url}/#/register",
                         f"{self.base_url}/#/search",
                         f"{self.base_url}/#/contact",
-                        f"{self.base_url}/#/forgot-password",
                         f"{self.base_url}/#/basket"
                     ]
 
                 for url in test_routes:
                     try:
                         print(f"  [DEBUG-PLAYWRIGHT] Navigating to: {url}", flush=True)
-                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                        page.wait_for_timeout(3000)
+                        page.goto(url, wait_until="domcontentloaded", timeout=10000)
+                        page.wait_for_timeout(2000)
 
+                        # Tắt các banner gây che khuất
                         page.evaluate("""
-                            const dismissBtn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Dismiss'));
-                            if (dismissBtn) { dismissBtn.click(); }
+                            const welcomeBtn = document.querySelector('button[aria-label="Close Welcome Banner"]');
+                            if (welcomeBtn) { welcomeBtn.click(); }
 
-                            const cookieBtn = Array.from(document.querySelectorAll('a')).find(el => el.getAttribute('aria-label') === 'dismiss cookie message');
+                            const cookieBtn = document.querySelector('a[aria-label="dismiss cookie message"]');
                             if (cookieBtn) { cookieBtn.click(); }
+
+                            document.querySelectorAll('.cdk-overlay-container').forEach(e => e.remove());
                         """)
                         page.wait_for_timeout(500)
 
-                        # --- [MỚI] STATE-TRANSITION CRAWLING (QUÉT FORM ĐỘNG/MODALS) ---
-                        print("  [DEBUG-PLAYWRIGHT] Searching for dynamic / hidden forms...", flush=True)
-                        page.evaluate("""
-                            async function exploreDynamicForms() {
-                                // Tìm tất cả các nút có khả năng mở Modal/Form ẩn
-                                const buttons = Array.from(document.querySelectorAll('button, [role="button"], .btn, a.nav-link'));
+                        # --- 1. TƯƠNG TÁC FORM MẶC ĐỊNH ---
+                        if "/#/login" in url or url.endswith("/login"):
+                            email_input = page.query_selector('#email')
+                            pass_input = page.query_selector('#password')
+                            if email_input and pass_input:
+                                email_input.focus()
+                                email_input.fill('admin@juice-sh.op')
+                                print("  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
 
-                                for (let btn of buttons) {
-                                    const btnText = btn.textContent.toLowerCase();
+                                pass_input.focus()
+                                pass_input.fill('admin123')
+                                print("  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
 
-                                    // Bỏ qua các nút mang tính chất Logout hoặc Submit trực tiếp
-                                    if (btnText.includes('sign out') || btnText.includes('logout') || btnText.includes('submit')) {
-                                        continue;
-                                    }
+                                page.wait_for_timeout(500)
 
-                                    const initialInputsCount = document.querySelectorAll('input').length;
+                                login_btn = page.query_selector('#loginButton')
+                                if login_btn:
+                                    print("  [DEBUG-PLAYWRIGHT] Clicking login button", flush=True)
+                                    login_btn.click()
+                                    page.wait_for_timeout(1000)
 
-                                    try {
-                                        // Click thử vào nút để mở Modal/Form ẩn
-                                        btn.click();
-                                        // Chờ 600ms cho hiệu ứng mở Modal (được bọc trong Promise để chạy đồng bộ tuần tự)
-                                        await new Promise(resolve => setTimeout(resolve, 600));
-
-                                        const currentInputs = document.querySelectorAll('input');
-
-                                        // Nếu số lượng input tăng lên -> Một Form mới vừa xuất hiện trong DOM!
-                                        if (currentInputs.length > initialInputsCount) {
-                                            console.log("Found hidden form/modal!");
-
-                                            // Điền dữ liệu giả vào các input mới xuất hiện
-                                            currentInputs.forEach(inp => {
-                                                if (!inp.value) {
-                                                    let type = inp.getAttribute('type') || 'text';
-                                                    let name = inp.getAttribute('name') || inp.getAttribute('id') || '';
-
-                                                    if (name.toLowerCase().includes('email')) {
-                                                        inp.value = 'admin@juice-sh.op';
-                                                    } else if (type === 'password') {
-                                                        inp.value = 'admin123';
-                                                    } else {
-                                                        inp.value = 'test_fuzz_dynamic';
-                                                    }
-
-                                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                                }
-                                            });
-
-                                            // Tìm và click nút Submit bên trong container/modal đó để trigger API
-                                            const container = currentInputs[0].closest('.modal, .dialog, mat-dialog-container, [role="dialog"], div');
-                                            if (container) {
-                                                const submitBtn = Array.from(container.querySelectorAll('button')).find(el => 
-                                                    el.textContent.toLowerCase().includes('send') || 
-                                                    el.textContent.toLowerCase().includes('submit') ||
-                                                    el.textContent.toLowerCase().includes('register') ||
-                                                    el.textContent.toLowerCase().includes('login')
-                                                );
-                                                if (submitBtn) { 
-                                                    submitBtn.click(); 
-                                                    await new Promise(resolve => setTimeout(resolve, 1000));
-                                                }
-
-                                                // Đóng modal lại để không che khuất các phần tử khác
-                                                const closeBtn = container.querySelector('[aria-label="Close"], .close, button.close-dialog');
-                                                if (closeBtn) { closeBtn.click(); }
-                                            }
-                                        }
-                                    } catch(err) {}
-                                }
-                            }
-                            // Chạy hàm bất đồng bộ
-                            exploreDynamicForms();
-                        """)
-                        page.wait_for_timeout(4000)  # Đợi quá trình giả lập click modal và thu thập API hoàn tất
-                        # -------------------------------------------------------------
-
-                        # --- ĐIỀN FORM TỰ ĐỘNG BẰNG PLAYWRIGHT API (MẶC ĐỊNH) ---
-                        inputs = page.query_selector_all('input')
-                        for inp in inputs:
-                            try:
-                                inp_type = inp.get_attribute('type') or 'text'
-                                inp_id = inp.get_attribute('id') or ''
-                                inp_name = inp.get_attribute('name') or ''
-                                placeholder = inp.get_attribute('placeholder') or ''
-
-                                if 'email' in inp_id.lower() or 'email' in inp_name.lower():
-                                    inp.focus()
-                                    inp.fill('admin@juice-sh.op')
-                                elif inp_type == 'password':
-                                    inp.focus()
-                                    inp.fill('admin123')
-                                elif 'search' in inp_id.lower() or 'search' in inp_name.lower() or 'search' in placeholder.lower():
-                                    inp.focus()
-                                    inp.fill('apple')
-                                    page.keyboard.press("Enter")
-                                else:
-                                    inp.focus()
-                                    inp.fill('test_fuzzing_data')
-                            except Exception:
-                                pass
-
-                        search_icon = page.query_selector('.mat-search-button, #searchQuery')
+                        search_icon = page.query_selector('#searchQuery')
                         if search_icon:
-                            try:
-                                search_icon.click()
-                                page.keyboard.type('apple')
-                                page.keyboard.press("Enter")
-                            except:
-                                pass
+                            search_icon.focus()
+                            search_icon.click()
+                            page.keyboard.type('apple')
+                            page.keyboard.press("Enter")
+                            print("  [DEBUG-PLAYWRIGHT] Submitted Search query 'apple'", flush=True)
+                            page.wait_for_timeout(1000)
 
-                        buttons = page.query_selector_all('button:not([disabled])')
-                        for btn in buttons:
-                            try:
-                                btn_text = btn.inner_text().lower()
-                                if any(k in btn_text for k in
-                                       ['log in', 'login', 'submit', 'register', 'search', 'send']):
-                                    btn.click(force=True)
-                                    page.wait_for_timeout(500)
-                            except:
-                                pass
+                        # --- 2. TỰ ĐỘNG PHÁT HIỆN VÀ KÍCH HOẠT FORM ẨN (DYNAMIC FORM REVEALER) ---
+                        # Chạy script phân tích các thành phần click trên DOM có khả năng mở ra form mới [1]
+                        revealer_elements = page.evaluate("""() => {
+                            const triggerKeywords = ['add', 'create', 'new', 'show', 'expand', 'advanced', 'toggle', 'forgot', 'feedback', 'review', 'comment', 'write'];
+                            const blacklist = ['logout', 'signout', 'sign out', 'delete', 'remove', 'exit', 'cancel', 'login', 'log in', 'signin'];
 
-                        page.wait_for_timeout(1500)
+                            const clickables = Array.from(document.querySelectorAll('button, a, [role="button"], .mat-button, .btn'));
+                            const found = [];
+
+                            clickables.forEach((el, index) => {
+                                const text = (el.innerText || el.textContent || "").toLowerCase().trim();
+                                const matchesTrigger = triggerKeywords.some(kw => text.includes(kw));
+                                const matchesBlacklist = blacklist.some(kw => text.includes(kw));
+
+                                // Kiểm tra xem phần tử có hiển thị trên màn hình không
+                                const isVisible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+
+                                if (matchesTrigger && !matchesBlacklist && isVisible) {
+                                    // Gắn thuộc tính tạm để định danh khi quay lại Python
+                                    el.setAttribute('data-scan-revealer', 'true');
+                                    found.push({
+                                        text: text,
+                                        tagName: el.tagName.toLowerCase()
+                                    });
+                                }
+                            });
+                            return found;
+                        }""")
+
+                        if revealer_elements:
+                            print(
+                                f"  [DEBUG-PLAYWRIGHT] Found {len(revealer_elements)} potential form-revealer elements.",
+                                flush=True)
+                            # Giới hạn click tối đa 5 nút để tránh lặp vô tận hoặc tốn thời gian
+                            for i in range(min(len(revealer_elements), 5)):
+                                try:
+                                    revealers = page.query_selector_all('[data-scan-revealer="true"]')
+                                    if i < len(revealers):
+                                        target_btn = revealers[i]
+                                        print(
+                                            f"  [DEBUG-PLAYWRIGHT] Clicking form-revealer: '{revealer_elements[i]['text']}'",
+                                            flush=True)
+                                        target_btn.click(force=True)
+                                        page.wait_for_timeout(1500)  # Đợi form/modal/dialog render xong
+
+                                        # Quét và tự động điền các ô nhập liệu mới xuất hiện bên trong modal/form vừa mở
+                                        new_inputs = page.query_selector_all('input, textarea')
+                                        for inp in new_inputs:
+                                            try:
+                                                # Chỉ điền nếu ô đó rỗng
+                                                val = inp.evaluate("el => el.value")
+                                                if not val:
+                                                    inp.focus()
+                                                    inp.fill('test_fuzzing_data')
+                                                    page.wait_for_timeout(100)
+                                            except:
+                                                pass
+
+                                        # Bấm Enter để kích hoạt submit dữ liệu lên API
+                                        page.keyboard.press("Enter")
+                                        page.wait_for_timeout(1000)
+
+                                        # Gửi phím Escape để đóng modal, khôi phục trạng thái ban đầu của trang
+                                        page.keyboard.press("Escape")
+                                        page.wait_for_timeout(500)
+                                except:
+                                    pass
+
                     except Exception as e:
                         print(f"  [DEBUG-PLAYWRIGHT] Failed to interact with {url}: {e}", flush=True)
+
+                print("  [DEBUG-PLAYWRIGHT] Waiting for background network requests to settle...", flush=True)
+                page.wait_for_timeout(3000)
 
             except Exception as e:
                 print(f"  [DEBUG-PLAYWRIGHT] Main route error: {e}", flush=True)
