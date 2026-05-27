@@ -35,10 +35,13 @@ class DomXssTester(BaseTester):
         driver.set_page_load_timeout(15)
         return driver
 
-    def _sync_cookies(self, driver, base_url):
+    def _sync_session(self, driver, base_url):
+        """Đồng bộ Cookies và LocalStorage Token cho trình duyệt Selenium"""
         try:
             driver.get(f"{base_url}/favicon.ico")
             driver.add_cookie({'name': 'ngrok-skip-browser-warning', 'value': 'true', 'path': '/'})
+
+            token_value = None
             for cookie in self.session.cookies:
                 driver.add_cookie({
                     'name': cookie.name,
@@ -46,6 +49,13 @@ class DomXssTester(BaseTester):
                     'domain': cookie.domain or urlparse(base_url).hostname,
                     'path': cookie.path or '/'
                 })
+                # Đọc JWT Token nếu tồn tại
+                if cookie.name.lower() in ['token', 'jwt', 'bearer'] or cookie.value.startswith('eyJ'):
+                    token_value = cookie.value
+
+            # Ghi đè Token vào LocalStorage để bypass cấu hình phân quyền Client-side của Angular [2]
+            if token_value:
+                driver.execute_script(f"localStorage.setItem('token', '{token_value}');")
         except Exception:
             pass
 
@@ -66,7 +76,7 @@ class DomXssTester(BaseTester):
         driver = None
         try:
             driver = self._get_selenium_driver()
-            self._sync_cookies(driver, base_url)
+            self._sync_session(driver, base_url)
 
             if has_query:
                 params = parse_qs(parsed.query)
@@ -141,7 +151,6 @@ class DomXssTester(BaseTester):
 
             alert = driver.switch_to.alert
             alert.accept()
-            # [SỬA LỖI]: Cứ thấy có alert bật lên thì tính là thành công
             return True
 
         except (NoAlertPresentException, TimeoutException):
