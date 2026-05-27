@@ -22,6 +22,7 @@ from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
 from integrations.playwright_crawler import PlaywrightCrawler
+from integrations.waf_bypass_scanner import run_waf_bypass
 from utils.swagger_parser import discover_api_from_swagger
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
@@ -71,7 +72,11 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
-    headers = {'User-Agent': 'Mozilla/5.0', 'ngrok-skip-browser-warning': 'true'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'ngrok-skip-browser-warning': 'true'
+    }
     cookie_dict = {}
     if cookies:
         for item in cookies.split(';'):
@@ -114,6 +119,7 @@ def run_scan_task(scan_id: int):
             scraped_forms = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
+            # --- PHASE 0: CRAWLING & SITE TREE GENERATION ---
             if crawl_depth > 0:
                 print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
                 with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
@@ -161,16 +167,30 @@ def run_scan_task(scan_id: int):
             print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
                   flush=True)
 
+            # --- PHASE 1: RECONNAISSANCE ---
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
+            # 1. Traditional WAF Detection (WAFW00F)
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
                 db.session.add(ReconFinding(scan_id=scan.id, tool='wafw00f', finding_type='WAF Detected',
                                             details=json.dumps(waf_result)))
                 db.session.commit()
 
+            # 2. Active WAF Bypass Tool
+            waf_bypass_results = run_waf_bypass(scan.target_url)
+            for result in waf_bypass_results:
+                db.session.add(ReconFinding(
+                    scan_id=scan.id,
+                    tool=result['tool'],
+                    finding_type=result['finding_type'],
+                    details=json.dumps(result['details'])
+                ))
+            db.session.commit()
+
+            # 3. DNS Reconnaissance
             if domain and not is_ip_address(domain):
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -179,6 +199,7 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(record)))
                 db.session.commit()
 
+            # 4. Port Scanning & Service Audit (Nmap)
             if domain:
                 nmap_data = run_nmap(domain)
                 for port_info in nmap_data.get('ports', []):
@@ -223,6 +244,7 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(vuln_info)))
                 db.session.commit()
 
+            # --- PHASE 2: NUCLEI SCANNING ---
             print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             for n_vuln in run_nuclei(scan.target_url):
                 nuclei_temp = VulnerabilityDataClass(
@@ -240,6 +262,7 @@ def run_scan_task(scan_id: int):
                     seen_vuln_hashes.add(v_hash)
             db.session.commit()
 
+            # --- PHASE 3: SQLMAP SCANNING ---
             print(f"[Scan ID: {scan_id}] Running sqlmap...", flush=True)
             for result in run_sqlmap(scan.target_url, scan.auth_cookies):
                 title = f"SQL Injection (Verified by sqlmap) - {len(result.get('findings', []))} points"
@@ -251,6 +274,7 @@ def run_scan_task(scan_id: int):
                                              details=json.dumps(result, indent=2)))
             db.session.commit()
 
+            # --- PHASE 4: CORE PYTHON SCANNING ---
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
                   flush=True)

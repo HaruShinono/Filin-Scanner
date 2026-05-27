@@ -24,20 +24,23 @@ class WebsocketTester(BaseTester):
         if 'socket.io' not in url.lower():
             return vulns
 
-        # Convert HTTP protocol to WS protocol
+        # Chuyển đổi HTTP protocol sang WS protocol
         ws_scheme = 'ws' if parsed.scheme == 'http' else 'wss'
         ws_url = f"{ws_scheme}://{parsed.netloc}/socket.io/?EIO=4&transport=websocket"
 
         print(f"  [DEBUG-WS] Connecting to Engine.IO / Socket.IO endpoint: {ws_url}", flush=True)
 
-        # 1. Run Cross-Site WebSocket Hijacking (CSWSH) Test
+        # --- TEST 1: Cross-Site WebSocket Hijacking (CSWSH) ---
         try:
+            # Sửa lỗi: Thêm bypass Ngrok vào Header bắt tay CSWSH
             ws_cswsh = websocket.create_connection(
                 ws_url,
-                header=["Origin: http://evil-attacker.com"],
+                header=[
+                    "Origin: http://evil-attacker.com",
+                    "ngrok-skip-browser-warning: true"
+                ],
                 timeout=5
             )
-            # Socket.IO handshake packet '0' returned on successful connection
             initial_packet = ws_cswsh.recv()
             ws_cswsh.close()
 
@@ -53,37 +56,41 @@ class WebsocketTester(BaseTester):
                     severity='High',
                     cwe='CWE-1385',
                     cvss_score=7.5,
-                    cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:R/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N'
+                    # Sửa UI:R thành UI:A cho đúng chuẩn CVSS v4.0
+                    cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N'
                 ))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [DEBUG-WS] CSWSH test finished (Connection refused/closed): {e}", flush=True)
 
-        # 2. Run Socket.IO Event Fuzzing (XSS / verifyLocalXssChallenge)
+        # --- TEST 2: Socket.IO Event Fuzzing (XSS) ---
         try:
-            ws = websocket.create_connection(ws_url, timeout=5)
+            # Sửa lỗi: Thêm bypass Ngrok vào Header bắt tay XSS Fuzzing
+            ws = websocket.create_connection(
+                ws_url,
+                header=["ngrok-skip-browser-warning: true"],
+                timeout=5
+            )
 
             # Step A: Handshake '0' packet
             handshake = ws.recv()
 
-            # Step B: Connect to the namespace (Socket.IO v4 expects a '40' packet)
+            # Step B: Connect to namespace
             ws.send("40")
-            ns_ack = ws.recv()  # Expect '40{"sid":"..."}'
+            ns_ack = ws.recv()
 
-            # Step C: Probing custom events (e.g. verifyLocalXssChallenge)
+            # Step C: Fuzzing
             for payload in self.payloads:
-                # Format: 42 (Engine.IO Message + Socket.IO Event)
                 event_packet = f'42["verifyLocalXssChallenge","{payload}"]'
                 print(f"  [DEBUG-WS] Emitting packet: {event_packet}", flush=True)
 
                 ws.send(event_packet)
 
-                # Monitor server response frame
                 start_time = time.time()
                 while time.time() - start_time < 3:
                     try:
                         response = ws.recv()
-                        # If the server echoes back the unescaped payload or triggers execution
                         if payload in response:
+                            print("  [DEBUG-WS] !!! WEBSOCKET XSS CONFIRMED !!!", flush=True)
                             vulns.append(Vulnerability(
                                 type='Cross-Site Scripting (XSS)',
                                 subcategory='WebSocket Reflected XSS',
@@ -96,7 +103,8 @@ class WebsocketTester(BaseTester):
                                 severity='High',
                                 cwe='CWE-79',
                                 cvss_score=6.1,
-                                cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:R/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N'
+                                # Sửa UI:R thành UI:A cho đúng chuẩn CVSS v4.0
+                                cvss_vector='CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N'
                             ))
                             break
                     except Exception:
