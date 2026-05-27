@@ -68,16 +68,26 @@
     .tree-folder { color: #f9e2af !important; }
     .tree-file { color: #bac2de !important; }
 
-    /* --- CSS CHO ACCORDION & TERMINAL --- */
+    /* --- PHỐI MÀU ACCORDION & TERMINAL ĐỒNG BỘ DARK MODE --- */
+    .child-accordion .accordion-item {
+        border-color: #313244 !important;
+        background-color: #1e1e2e !important;
+    }
     .child-accordion .accordion-button {
-        padding: 0.5rem 1rem;
-        font-size: 0.95rem;
-        background-color: rgba(0,0,0,0.02);
+        padding: 0.6rem 1.2rem;
+        font-size: 0.92rem;
+        background-color: #181825;
+        color: #cdd6f4;
+        border-bottom: 1px solid #313244;
+    }
+    .child-accordion .accordion-button:not(.collapsed) {
+        background-color: #313244;
+        color: #f5c2e7;
     }
     .child-accordion .accordion-body {
-        padding: 1rem;
-        background-color: #fff;
-        border: 1px solid rgba(0,0,0,0.05);
+        padding: 1.2rem;
+        background-color: #11111b;
+        color: #cdd6f4;
     }
     .cvss-vector-badge {
         font-size: 0.72em;
@@ -89,36 +99,44 @@
         display: inline-block;
     }
 
-    /* --- CSS CHI TIẾT LỖ HỔNG DẠNG BẢNG (MỚI) --- */
+    /* --- PHỐI MÀU KHỐI CHI TIẾT LỖ HỔNG (MỚI - SẠCH SẼ & CAO CẤP) --- */
     .tech-details-table {
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
-        border: 1px solid rgba(0, 0, 0, 0.08);
+        border: 1px solid #313244;
         border-radius: 6px;
         overflow: hidden;
+        background-color: #11111b;
     }
     .tech-details-table td {
-        padding: 8px 12px;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-        vertical-align: middle;
+        padding: 10px 14px;
+        border-bottom: 1px solid #1e1e2e;
+        vertical-align: top;
+        font-size: 0.92rem;
     }
     .tech-details-table tr:last-child td {
         border-bottom: none;
     }
     .tech-details-key {
-        font-weight: bold;
-        color: #495057;
-        width: 20%;
-        background-color: rgba(0, 0, 0, 0.02);
+        font-weight: 600;
+        color: #89b4fa; /* Màu xanh pastel nổi bật khóa */
+        width: 25%;
+        background-color: #181825;
+        border-right: 1px solid #313244;
+        user-select: none;
+    }
+    .tech-details-val {
+        color: #a6e3a1; /* Màu chữ xanh terminal dịu nhẹ */
+        background-color: #11111b;
     }
     .tech-details-val code {
-        background-color: #1e1e2e !important;
-        color: #f5e0dc !important;
-        padding: 8px 12px !important;
-        border-radius: 4px;
+        background-color: transparent !important;
+        color: inherit !important;
+        padding: 0 !important;
         font-size: 0.9em;
         display: block;
+        border: none !important;
     }
 </style>
 
@@ -131,6 +149,9 @@
         <div>
             <button id="btn-cancel-scan" class="btn btn-outline-danger me-2 d-none" onclick="cancelScan({{ scan.id }})">
                 <i class="bi bi-stop-circle"></i> Cancel Scan
+            </button>
+            <button id="btn-retry-scan" class="btn btn-warning me-2 d-none" onclick="retryScan()">
+                <i class="bi bi-arrow-clockwise"></i> Retry Scan
             </button>
             <a href="{{ url_for('main.export_pdf', scan_id=scan.id) }}" class="btn btn-primary me-2">
                 <i class="bi bi-file-earmark-pdf"></i> Export PDF
@@ -173,12 +194,11 @@
         </div>
     </div>
 
-    <!-- SITE STRUCTURE TREE (Thu gọn vào nút bấm) -->
     {% if scan.site_tree %}
     <div class="mb-3 mt-4">
         <button class="btn btn-outline-secondary d-flex align-items-center gap-2 shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#siteTreeCollapse" aria-expanded="false">
             <i class="bi bi-diagram-3-fill text-primary"></i>
-            <span>Site Structure (Crawled Map) - Click to Expand</span>
+            <span>Site Structure - Click to Expand</span>
         </button>
     </div>
 
@@ -443,6 +463,37 @@
         }
     }
 
+    async function retryScan() {
+        const btn = document.getElementById('btn-retry-scan');
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Restarting...';
+        btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('target_url', '{{ scan.target_url }}');
+        formData.append('scan_mode', '{{ scan.scan_mode }}');
+        {% if scan.auth_cookies %}
+        formData.append('auth_cookies', '{{ scan.auth_cookies }}');
+        {% endif %}
+
+        try {
+            const response = await fetch("{{ url_for('main.new_scan') }}", {
+                method: 'POST',
+                body: formData
+            });
+            if (response.redirected) {
+                window.location.href = response.url;
+            } else {
+                alert('Failed to restart scan.');
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Retry Scan';
+                btn.disabled = false;
+            }
+        } catch (error) {
+            alert('Error connecting to server.');
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Retry Scan';
+            btn.disabled = false;
+        }
+    }
+
     async function triggerAiRemediation(groupHash, firstVulnId) {
         const btn = document.getElementById(`btn-ai-${groupHash}`);
         const contentArea = document.getElementById(`ai-content-${groupHash}`);
@@ -504,7 +555,6 @@
             .replace(/-+$/, '');
     }
 
-    // [MỚI] Hàm parse và căn chỉnh thẳng hàng tuyệt đẹp cho CVSS v4.0 metrics
     function renderCvssAndCwe(vectorStr, cwe) {
         let html = '<div class="d-flex align-items-center flex-wrap gap-1 mt-2">';
 
@@ -551,10 +601,18 @@
             statusBadge.className = 'badge';
 
             const cancelBtn = document.getElementById('btn-cancel-scan');
+            const retryBtn = document.getElementById('btn-retry-scan');
+
             if (status === 'RUNNING' || status === 'PENDING') {
                 cancelBtn.classList.remove('d-none');
             } else {
                 cancelBtn.classList.add('d-none');
+            }
+
+            if (status === 'FAILED') {
+                retryBtn.classList.remove('d-none');
+            } else {
+                retryBtn.classList.add('d-none');
             }
 
             if (status === 'COMPLETED') {
@@ -590,8 +648,7 @@
                 try { details = JSON.parse(details); } catch (e) { details = {}; }
             }
 
-            // --- [SỬA LẠI] CHI TIẾT LỖ HỔNG DẠNG BẢNG ĐẸP ---
-            let detailsHtml = '<table class="tech-details-table table table-bordered table-sm mt-2 mb-0" style="table-layout: fixed; width: 100%;">';
+            let detailsHtml = '<table class="tech-details-table table table-bordered table-sm mt-2 mb-0" style="table-layout: fixed; width: 100%; border: 1px solid #313244; background-color: #11111b;">';
             detailsHtml += '<tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
@@ -600,27 +657,27 @@
                     displayValue = escapeHtml(displayValue);
                     detailsHtml += `
                         <tr>
-                            <td class="tech-details-key align-middle">${escapeHtml(key)}</td>
-                            <td class="tech-details-val"><code class="text-break d-block" style="white-space: pre-wrap;">${displayValue}</code></td>
+                            <td class="tech-details-key align-middle" style="font-weight: 600; color: #89b4fa; width: 25%; background-color: #181825; border-right: 1px solid #313244; padding: 10px 14px;">${escapeHtml(key)}</td>
+                            <td class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${displayValue}</code></td>
                         </tr>
                     `;
                 }
             } else {
-                 detailsHtml += `<tr><td colspan="2" class="tech-details-val"><code class="text-break d-block" style="white-space: pre-wrap;">${escapeHtml(details)}</code></td></tr>`;
+                 detailsHtml += `<tr><td colspan="2" class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${escapeHtml(details)}</code></td></tr>`;
             }
             detailsHtml += '</tbody></table>';
 
             const childHtml = `
-                <div class="accordion-item border-0 border-bottom">
+                <div class="accordion-item border-0 border-bottom" style="border-color: #313244 !important; background-color: #1e1e2e !important;">
                     <h2 class="accordion-header" id="heading-child-${vuln.id}">
-                        <button class="accordion-button collapsed class="py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}">
+                        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}" style="padding: 0.6rem 1.2rem; font-size: 0.92rem; background-color: #181825; color: #cdd6f4; border-bottom: 1px solid #313244;">
                             <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" style="font-size: 0.75em;">${vuln.severity}</span>
                             <span class="fw-bold me-2 text-truncate" style="max-width: 300px;">${escapeHtml(vuln.subcategory || 'Issue Instance')}</span>
                             <span class="text-muted text-truncate small">${escapeHtml(vuln.url)}</span>
                         </button>
                     </h2>
                     <div id="collapse-child-${vuln.id}" class="accordion-collapse collapse" data-bs-parent="#child-accordion-${groupHash}">
-                        <div class="accordion-body p-3 bg-light">
+                        <div class="accordion-body p-3" style="padding: 1.2rem; background-color: #11111b; color: #cdd6f4;">
                             <p class="mb-2"><strong>Target URL:</strong> <a href="${vuln.url}" target="_blank">${escapeHtml(vuln.url)}</a></p>
                             ${detailsHtml}
                         </div>
@@ -682,7 +739,6 @@
                     </div>`;
                 }
 
-                // --- [SỬA LẠI] CĂN THẲNG HÀNG CVSS V4 & CWE ---
                 const cvssVectorHtml = renderCvssAndCwe(vuln.cvss_vector, vuln.cwe);
 
                 const parentHtml = `
@@ -698,7 +754,6 @@
                         <div id="collapse-group-${groupHash}" class="accordion-collapse collapse" data-bs-parent="#vulnerabilities-accordion">
                             <div class="accordion-body pt-0">
 
-                                <!-- Render liền một hàng ngang -->
                                 ${cvssVectorHtml}
                                 <hr class="my-3 opacity-25">
 
@@ -711,7 +766,7 @@
 
                                 <div class="tab-content pt-3">
                                     <div class="tab-pane fade show active" id="details-pane-${groupHash}" role="tabpanel">
-                                        <div class="accordion accordion-flush child-accordion border rounded" id="child-accordion-${groupHash}">
+                                        <div class="accordion accordion-flush child-accordion border rounded" id="child-accordion-${groupHash}" style="background-color: #11111b; border: 1px solid #313244;">
                                             ${childHtml}
                                         </div>
                                     </div>
