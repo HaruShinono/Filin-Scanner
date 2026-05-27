@@ -166,4 +166,4 @@ class PlaywrightCrawler:
                 browser.close()
 
         print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms!", flush=True)
-        return self.discovered_apis
+        return self.discovered_apis #chuan
