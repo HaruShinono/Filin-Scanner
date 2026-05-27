@@ -14,7 +14,6 @@ class XssTester(BaseTester):
         self.payloads = self.config.get('payloads', [])
 
     def test(self, url: str) -> List[Vulnerability]:
-        # Giữ nguyên hàm test() cũ của bạn
         return []
 
     def test_form(self, form_data: dict) -> List[Vulnerability]:
@@ -26,7 +25,7 @@ class XssTester(BaseTester):
             inputs = form_data.get('inputs', [])
             is_api = form_data.get('is_api', False) or any(
                 k in url.lower() for k in ['/api/', '/rest/', '/v1/', '/v2/'])
-            captured_headers = form_data.get('headers', {})  # Nhận Headers từ Playwright
+            captured_headers = form_data.get('headers', {})
 
             print(f"  [DEBUG-XSS] Analyzing Endpoint: {method} {url} (Is API: {is_api})", flush=True)
 
@@ -40,7 +39,7 @@ class XssTester(BaseTester):
                     print(f"  [DEBUG-XSS] Testing Param [{param}] with Payload: {payload[:50]}...", flush=True)
                     try:
                         resp = self._inject_form_payload(url, method, inputs, param, payload, is_api, captured_headers)
-                        if not resp:
+                        if resp is None:
                             continue
 
                         content_type = resp.headers.get('Content-Type', '').lower()
@@ -88,8 +87,6 @@ class XssTester(BaseTester):
             data[inp['name']] = payload if inp['name'] == target_param else inp.get('value', 'test')
 
         headers = {'ngrok-skip-browser-warning': 'true', 'Accept': 'application/json, text/plain, */*'}
-
-        # --- SỬA LỖI: Đồng bộ chính xác headers tùy chỉnh ---
         if extra_headers:
             headers.update(extra_headers)
 
@@ -104,3 +101,27 @@ class XssTester(BaseTester):
         except Exception as e:
             print(f"  [DEBUG-XSS] Exception in _inject_form_payload: {e}", flush=True)
             return None
+
+    def _verify_execution_context(self, soup: BeautifulSoup, payload: str) -> bool:
+        payload_str = str(payload)
+        safe_tags = ['textarea', 'title', 'pre', 'code', 'xmp', 'noembed', 'noframes', 'style']
+        for tag in safe_tags:
+            for element in soup.find_all(tag):
+                if element.string and payload_str in element.string: return False
+
+        for script in soup.find_all('script'):
+            if script.string and payload_str in script.string:
+                if f'"{payload_str}"' in script.string or f"'{payload_str}'" in script.string:
+                    if not any(c in payload_str for c in ["'", '"']): return False
+                return True
+
+        for tag in soup.find_all(True):
+            for attr, value in tag.attrs.items():
+                if attr.lower().startswith('on'):
+                    if isinstance(value, str) and payload_str in value:
+                        return True
+                    elif isinstance(value, list) and any(payload_str in v for v in value):
+                        return True
+
+        if payload_str.startswith('<') and payload_str in str(soup): return True
+        return False

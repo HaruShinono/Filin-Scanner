@@ -19,94 +19,7 @@ class SqliTester(BaseTester):
         self.time_delay_threshold = self.config.get('time_delay_seconds', 4)
 
     def test(self, url: str) -> List[Vulnerability]:
-        vulns = []
-        parsed_url = urlparse(url)
-        if not parsed_url.query: return vulns
-
-        query_params = parse_qs(parsed_url.query)
-        base_response = self.fetch(url)
-        if not base_response: return vulns
-
-        is_api = any(keyword in url.lower() for keyword in ['/api/', '/rest/', '/v1/', '/v2/'])
-        base_len = len(base_response.content)
-
-        for param in query_params:
-            original_value = query_params[param]
-
-            for payload in self.error_payloads:
-                try:
-                    resp = self._inject_payload(parsed_url, query_params, param, payload)
-                    if resp and any(err.lower() in resp.text.lower() for err in self.error_patterns):
-                        safe_val = "123456"
-                        safe_resp = self._inject_payload(parsed_url, query_params, param, safe_val)
-                        if not (any(err.lower() in safe_resp.text.lower() for err in
-                                    self.error_patterns) if safe_resp else False):
-                            vulns.append(Vulnerability(type='SQL Injection', subcategory='Error-Based', url=url,
-                                                       details={'parameter': param, 'payload': payload,
-                                                                'evidence': 'SQL error message appeared with payload but disappeared with safe input.'},
-                                                       severity='High'))
-                            break
-                except requests.RequestException:
-                    continue
-
-            for payload in self.time_payloads:
-                try:
-                    start_time = time.time()
-                    self._inject_payload(parsed_url, query_params, param, payload)
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time > self.time_delay_threshold:
-                        start_verify = time.time()
-                        self._inject_payload(parsed_url, query_params, param, str(original_value[0]))
-                        elapsed_verify = time.time() - start_verify
-                        if elapsed_verify < 2:
-                            vulns.append(Vulnerability(type='SQL Injection', subcategory='Time-Based', url=url,
-                                                       details={'parameter': param, 'payload': payload,
-                                                                'response_time_payload': f'{elapsed_time:.2f}s',
-                                                                'response_time_normal': f'{elapsed_verify:.2f}s',
-                                                                'evidence': 'Server response was significantly delayed by the payload.'},
-                                                       severity='High'))
-                            break
-                except requests.RequestException:
-                    continue
-
-            for payload_pair in self.boolean_payloads:
-                true_payload = payload_pair.get('true', "' AND 1=1--")
-                false_payload = payload_pair.get('false', "' AND 1=2--")
-                try:
-                    resp_true = self._inject_payload(parsed_url, query_params, param, true_payload)
-                    resp_false = self._inject_payload(parsed_url, query_params, param, false_payload)
-
-                    if resp_true and resp_false:
-                        sim_true = self._calculate_similarity(base_response.text, resp_true.text)
-                        sim_false = self._calculate_similarity(base_response.text, resp_false.text)
-
-                        len_true = len(resp_true.content)
-                        len_false = len(resp_false.content)
-
-                        is_vulnerable = False
-                        evidence_msg = ""
-
-                        if (sim_true > 0.95 and sim_false < 0.90):
-                            is_vulnerable = True
-                            evidence_msg = 'Response text differs significantly between TRUE and FALSE logic.'
-                        elif is_api and (abs(len_true - base_len) < 150) and (abs(len_true - len_false) > 150):
-                            is_vulnerable = True
-                            evidence_msg = f'API response length differs significantly: TRUE ({len_true} bytes) vs FALSE ({len_false} bytes).'
-                        elif resp_true.status_code == 200 and resp_false.status_code >= 400:
-                            is_vulnerable = True
-                            evidence_msg = f'HTTP Status changed: TRUE ({resp_true.status_code}) vs FALSE ({resp_false.status_code}).'
-
-                        if is_vulnerable:
-                            vulns.append(Vulnerability(
-                                type='SQL Injection', subcategory='Boolean-Based', url=url,
-                                details={'parameter': param, 'true_payload': true_payload,
-                                         'false_payload': false_payload, 'evidence': evidence_msg},
-                                severity='High'
-                            ))
-                            break
-                except requests.RequestException:
-                    continue
-        return vulns
+        return []
 
     def test_form(self, form_data: dict) -> List[Vulnerability]:
         vulns = []
@@ -122,7 +35,7 @@ class SqliTester(BaseTester):
             print(f"  [DEBUG-SQLI] Form Inputs: {inputs}", flush=True)
 
             base_resp = self._inject_form_payload(url, method, inputs, None, None, is_api, captured_headers)
-            if not base_resp:
+            if base_resp is None:
                 print(f"  [DEBUG-SQLI] Failed to get baseline response for {url}", flush=True)
                 return vulns
 
@@ -141,7 +54,7 @@ class SqliTester(BaseTester):
                         try:
                             resp = self._inject_form_payload(url, method, inputs, param, payload, is_api,
                                                              captured_headers)
-                            if resp:
+                            if resp is not None:
                                 print(
                                     f"  [DEBUG-SQLI] Auth Response - Status: {resp.status_code}, Length: {len(resp.content)} bytes",
                                     flush=True)
@@ -153,11 +66,11 @@ class SqliTester(BaseTester):
                                            ['token', 'session', 'success', 'jwt', 'user', 'authentication']):
                                         bad_resp = self._inject_form_payload(url, method, inputs, param, "' AND 1=2--",
                                                                              is_api, captured_headers)
-                                        bad_status = bad_resp.status_code if bad_resp else "N/A"
+                                        bad_status = bad_resp.status_code if bad_resp is not None else "N/A"
                                         print(f"  [DEBUG-SQLI] Control Payload Response Status: {bad_status}",
                                               flush=True)
 
-                                        if bad_resp and bad_resp.status_code in [401, 403, 404, 500]:
+                                        if bad_resp is not None and bad_resp.status_code in [401, 403, 404, 500]:
                                             print(f"  [DEBUG-SQLI] !!! SQLI AUTH BYPASS SUCCESS !!!", flush=True)
                                             vulns.append(Vulnerability(
                                                 type='SQL Injection', subcategory='Authentication Bypass (API)',
@@ -179,7 +92,7 @@ class SqliTester(BaseTester):
                     resp_false = self._inject_form_payload(url, method, inputs, param, false_payload, is_api,
                                                            captured_headers)
 
-                    if resp_true and resp_false:
+                    if resp_true is not None and resp_false is not None:
                         sim_true = self._calculate_similarity(base_resp.text, resp_true.text)
                         sim_false = self._calculate_similarity(base_resp.text, resp_false.text)
 
@@ -224,11 +137,11 @@ class SqliTester(BaseTester):
                 for payload in self.error_payloads:
                     try:
                         resp = self._inject_form_payload(url, method, inputs, param, payload, is_api, captured_headers)
-                        if resp and any(err.lower() in resp.text.lower() for err in self.error_patterns):
+                        if resp is not None and any(err.lower() in resp.text.lower() for err in self.error_patterns):
                             safe_resp = self._inject_form_payload(url, method, inputs, param, "123456", is_api,
                                                                   captured_headers)
                             has_error_safe = any(err.lower() in safe_resp.text.lower() for err in
-                                                 self.error_patterns) if safe_resp else False
+                                                 self.error_patterns) if safe_resp is not None else False
                             if not has_error_safe:
                                 vulns.append(
                                     Vulnerability(type='SQL Injection', subcategory=f'Error-Based ({method})', url=url,
