@@ -20,7 +20,7 @@ from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
-from integrations.dynamic_crawler import DynamicCrawler
+from integrations.ai_remediator import generate_overall_analysis
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -40,17 +40,13 @@ def get_kb_info(vuln_type):
 
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
-    GLOBAL_VULN_TYPES = [
-        'Cryptographic Failure', 'Security Misconfiguration', 'Security Logging and Monitoring Failure',
-        'Outdated Service Component', 'Using Components with Known Vulnerabilities',
-        'Software and Data Integrity Failure', 'Sensitive Data Exposure',
-        'Cross-Site Request Forgery (CSRF)', 'CSRF'
-    ]
-
+    GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
+                         'Security Logging and Monitoring Failure', 'Outdated Service Component',
+                         'Using Components with Known Vulnerabilities', 'Software and Data Integrity Failure',
+                         'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']
     parsed = urlparse(vuln.url)
     domain = parsed.netloc
     path = parsed.path
-
     details_str = ""
     if isinstance(vuln.details, dict):
         if 'parameter' in vuln.details:
@@ -66,21 +62,15 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
             details_str += f"|leak_type:{vuln.details['leak_type']}"
         elif 'form_action' in vuln.details:
             details_str += f"|action:{vuln.details['form_action']}"
-
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
     else:
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}|{path}{details_str}"
-
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'ngrok-skip-browser-warning': 'true'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Scanner/1.0'}
     cookie_dict = {}
     if cookies:
         for item in cookies.split(';'):
@@ -104,10 +94,13 @@ def run_scan_task(scan_id: int):
 
         print(f"Worker started for Scan ID: {scan_id}, Mode: {scan.scan_mode}", flush=True)
 
-        print(f"[Scan ID: {scan_id}] Performing pre-scan host check...", flush=True)
         if not check_host_alive(scan.target_url, scan.auth_cookies):
             print(f"[Scan ID: {scan_id}] ERROR: Host is unreachable or down. Aborting scan.", flush=True)
             scan.status = 'FAILED'
+            scan.ai_analysis = json.dumps({
+                "executive_summary": "Scan aborted because the target host did not respond.",
+                "risk_score": 0, "top_priorities": ["Check if the URL is correct", "Ensure the server is running"]
+            })
             scan.end_time = datetime.now(timezone.utc)
             db.session.commit()
             return
@@ -148,23 +141,13 @@ def run_scan_task(scan_id: int):
                             elif item.get('type') == 'form':
                                 scraped_forms.append(item)
 
-                if os.path.exists(out_file):
-                    os.remove(out_file)
-
-                print(f"[Scan ID: {scan_id}] Running Dynamic Browser Crawler (Selenium + Network Sniffing)...",
-                      flush=True)
-                dyn_crawler = DynamicCrawler(scan.target_url, scan.auth_cookies)
-                hidden_apis = dyn_crawler.crawl()
-
-                if hidden_apis:
-                    scraped_forms.extend(hidden_apis)
+                if os.path.exists(out_file): os.remove(out_file)
 
                 site_tree = build_site_tree(list(scraped_urls))
                 scan.site_tree = json.dumps(site_tree)
                 scan.discovered_forms = json.dumps(scraped_forms)
                 db.session.commit()
-                print(f"  [Discovery] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
-                      flush=True)
+                print(f"  [Scrapy] Found {len(scraped_urls)} unique URLs.", flush=True)
             else:
                 scraped_urls.add(scan.target_url)
 
@@ -193,8 +176,6 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(port_info)))
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
-                        print(f"  [Auditor] Checking {product} {version} on port {port_info.get('port')}...",
-                              flush=True)
                         vulns = audit_service_version(product, version)
                         if vulns:
                             max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
@@ -283,12 +264,14 @@ def run_scan_task(scan_id: int):
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
 
+            # [MỚI] Thêm dòng log hiển thị số lượng URL và Form chuẩn bị quét lên Console
+            print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
+                  flush=True)
+
             def save_vulnerability_callback(vuln: VulnerabilityDataClass):
                 with app.app_context():
                     v_hash = _generate_dedup_hash(vuln)
                     if v_hash in seen_vuln_hashes: return
-
-                    print(f"  [Scan ID: {scan_id}] Found vulnerability: {vuln.type} on {vuln.url}", flush=True)
 
                     kb_info = get_kb_info(vuln.type)
                     cvss_vector = vuln.cvss_vector or kb_info.get('cvss_vector')
@@ -314,16 +297,27 @@ def run_scan_task(scan_id: int):
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
+            scan = db.session.get(Scan, scan_id)
+            if bool(scan.recon_findings) or bool(scan.vulnerabilities):
+                vuln_summary = [{'type': v.type, 'severity': v.severity} for v in scan.vulnerabilities]
+                for rf in scan.recon_findings:
+                    if rf.tool == 'wafw00f':
+                        vuln_summary.append(
+                            {'type': f"WAF: {rf.get_details_as_dict().get('firewall', 'Unknown')}", 'severity': 'Info'})
+                    elif rf.tool == 'nmap-vuln':
+                        vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
+
+                analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
+                if analysis_result:
+                    scan.ai_analysis = json.dumps(analysis_result, indent=2)
+                    db.session.commit()
+
             scan.status = 'COMPLETED'
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)
 
         except Exception as e:
-            print(f"Scan ID: {scan_id} for target {scan.target_url} failed.", flush=True)
-            print(f"Error details: {e}", flush=True)
             traceback.print_exc()
-
             db.session.rollback()
-
             scan = db.session.get(Scan, scan_id)
             if scan: scan.status = 'FAILED'
 
