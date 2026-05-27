@@ -14,16 +14,15 @@ from factory import create_app, db
 from models import ReconFinding, Scan, Vulnerability
 from scanner_core.scanner import Scanner
 from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
-from integrations.playwright_crawler import PlaywrightCrawler
-from utils.swagger_parser import discover_api_from_swagger
+
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
 from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
 from integrations.sqlmap_scanner import run_sqlmap
-from integrations.ai_remediator import generate_overall_analysis
-from integrations.dynamic_crawler import DynamicCrawler
+from integrations.playwright_crawler import PlaywrightCrawler
+from utils.swagger_parser import discover_api_from_swagger
 from utils.cvss_calc import parse_and_calculate_cvss
 from utils.tree_builder import build_site_tree
 
@@ -87,7 +86,6 @@ def check_host_alive(url: str, cookies: str = None) -> bool:
 
 
 def is_ip_address(host: str) -> bool:
-    """Kiểm tra xem chuỗi có phải là địa chỉ IPv4 không"""
     return re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host) is not None
 
 
@@ -116,7 +114,6 @@ def run_scan_task(scan_id: int):
             scraped_forms = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
-            # 1. Chạy Scrapy (Nếu là Full Mode)
             if crawl_depth > 0:
                 print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
                 with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
@@ -140,26 +137,29 @@ def run_scan_task(scan_id: int):
             else:
                 scraped_urls.add(scan.target_url)
 
-                # --- 2. SỬ DỤNG PLAYWRIGHT (Bắt API động của SPA) ---
-                print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
-                pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
-                hidden_apis = pw_crawler.crawl()
-                if hidden_apis:
-                    scraped_forms.extend(hidden_apis)
+            print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
+            pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
+            hidden_apis = pw_crawler.crawl()
+            if hidden_apis:
+                scraped_forms.extend(hidden_apis)
+                for api in hidden_apis:
+                    scraped_urls.add(api['url'])
 
-                # --- 3. SỬ DỤNG SWAGGER DISCOVERY (Tự parse tài liệu API) ---
-                swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
-                if swagger_forms:
-                    scraped_forms.extend(swagger_forms)
-                    print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
+            swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
+            if swagger_forms:
+                scraped_forms.extend(swagger_forms)
+                print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
+                for sf in swagger_forms:
+                    scraped_urls.add(sf['url'])
 
-                # Lưu Tree & Form
-                site_tree = build_site_tree(list(scraped_urls))
-                scan.site_tree = json.dumps(site_tree)
-                scan.discovered_forms = json.dumps(scraped_forms)
-                db.session.commit()
-                print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
-                      flush=True)
+            scraped_urls.add(scan.target_url)
+
+            site_tree = build_site_tree(list(scraped_urls))
+            scan.site_tree = json.dumps(site_tree)
+            scan.discovered_forms = json.dumps(scraped_forms)
+            db.session.commit()
+            print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
+                  flush=True)
 
             print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
@@ -171,7 +171,6 @@ def run_scan_task(scan_id: int):
                                             details=json.dumps(waf_result)))
                 db.session.commit()
 
-            # Bỏ qua DNSRecon nếu target là IP
             if domain and not is_ip_address(domain):
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -213,7 +212,8 @@ def run_scan_task(scan_id: int):
                                                              cvss_score=temp_vuln.cvss_score or kb_info.get(
                                                                  'cvss_score'),
                                                              cvss_vector=temp_vuln.cvss_vector or kb_info.get(
-                                                                 'cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
+                                                                 'cvss_vector'),
+                                                             cwe=kb_info.get('cwe', 'N/A'),
                                                              details=json.dumps(temp_vuln.details, indent=2)))
                                 seen_vuln_hashes.add(v_hash)
 
@@ -282,21 +282,6 @@ def run_scan_task(scan_id: int):
                 pre_crawled_urls=scraped_urls, discovered_forms=scraped_forms
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
-
-            scan = db.session.get(Scan, scan_id)
-            if bool(scan.recon_findings) or bool(scan.vulnerabilities):
-                vuln_summary = [{'type': v.type, 'severity': v.severity} for v in scan.vulnerabilities]
-                for rf in scan.recon_findings:
-                    if rf.tool == 'wafw00f':
-                        vuln_summary.append(
-                            {'type': f"WAF: {rf.get_details_as_dict().get('firewall', 'Unknown')}", 'severity': 'Info'})
-                    elif rf.tool == 'nmap-vuln':
-                        vuln_summary.append({'type': f"Nmap NSE: {rf.finding_type}", 'severity': 'High'})
-
-                analysis_result = generate_overall_analysis(scan.target_url, vuln_summary)
-                if analysis_result:
-                    scan.ai_analysis = json.dumps(analysis_result, indent=2)
-                    db.session.commit()
 
             scan.status = 'COMPLETED'
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)
