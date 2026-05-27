@@ -56,7 +56,6 @@ class Scanner:
         if not self.visited_urls:
             self.visited_urls.add(self.base_url)
 
-        # Lưu trữ danh sách forms được Scrapy tìm thấy
         self.discovered_forms = discovered_forms if discovered_forms else []
 
         self.lock = threading.Lock()
@@ -130,7 +129,6 @@ class Scanner:
         return testers_list
 
     def _normalize_url(self, url: str) -> str:
-        # KHÔNG cắt fragment (#) để giữ lại SPA routes
         return url
 
     def _is_valid_url(self, url: str) -> bool:
@@ -168,7 +166,6 @@ class Scanner:
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
         logger.info(f"--- Starting Scan on {self.base_url} ---")
 
-        # Chỉ dùng crawl fallback nếu Scrapy không được sử dụng
         if len(self.visited_urls) <= 1 and self.depth > 0:
             logger.info("Phase 1: Fallback Crawling for URLs...")
             self.crawl(self.base_url, 0)
@@ -179,15 +176,22 @@ class Scanner:
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = {}
             for tester in self.testers:
+                tester_name = tester.__class__.__name__
+
                 # 1. Chạy test trên tất cả URLs
                 for url in self.visited_urls:
-                    futures[executor.submit(tester.test, url)] = (tester.__class__.__name__, url)
+                    # [DEBUG LOG]
+                    print(f"  [DEBUG-CORE] Queueing {tester_name}.test() on GET {url}", flush=True)
+                    futures[executor.submit(tester.test, url)] = (tester_name, url)
 
-                # 2. Chạy test trên tất cả POST Forms (nếu tester hỗ trợ)
+                # 2. Chạy test trên tất cả POST Forms
                 if hasattr(tester, 'test_form'):
                     for form in self.discovered_forms:
-                        futures[executor.submit(tester.test_form, form)] = (tester.__class__.__name__,
-                                                                            f"{form['url']} [POST]")
+                        # [DEBUG LOG]
+                        print(f"  [DEBUG-CORE] Queueing {tester_name}.test_form() on {form['method']} {form['url']}",
+                              flush=True)
+                        futures[executor.submit(tester.test_form, form)] = (tester_name,
+                                                                            f"{form['url']} [{form['method']}]")
 
             total_tasks = len(futures)
             completed_tasks = 0
