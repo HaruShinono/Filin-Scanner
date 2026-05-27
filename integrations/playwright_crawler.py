@@ -91,7 +91,8 @@ class PlaywrightCrawler:
             page.on("request", self._handle_request)
 
             try:
-                page.goto(self.base_url, wait_until="domcontentloaded", timeout=10000)
+                # 1. Khởi động trang chủ bằng domcontentloaded thay vì networkidle để không bị Socket.io làm treo máy
+                page.goto(self.base_url, wait_until="domcontentloaded", timeout=15000)
                 page.wait_for_timeout(2000)
 
                 if token_value:
@@ -107,25 +108,32 @@ class PlaywrightCrawler:
                         f"{self.base_url}/#/register",
                         f"{self.base_url}/#/search",
                         f"{self.base_url}/#/contact",
-                        f"{self.base_url}/#/forgot-password",
-                        f"{self.base_url}/#/basket"
+                        f"{self.base_url}/#/forgot-password"
                     ]
 
                 for url in test_routes:
                     try:
                         print(f"  [DEBUG-PLAYWRIGHT] Navigating to: {url}", flush=True)
-                        page.goto(url, wait_until="domcontentloaded", timeout=10000)
-                        page.wait_for_timeout(2000)
+                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
+                        # [QUAN TRỌNG] Đợi 3 giây để Angular render xong toàn bộ form
+                        page.wait_for_timeout(3000)
+
+                        # --- HACK 1: Tiêu diệt mọi Popup/Overlay che màn hình ---
                         page.evaluate("""
+                            // Bấm nút dismiss
                             const dismissBtn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Dismiss'));
                             if (dismissBtn) { dismissBtn.click(); }
 
                             const cookieBtn = Array.from(document.querySelectorAll('a')).find(el => el.getAttribute('aria-label') === 'dismiss cookie message');
                             if (cookieBtn) { cookieBtn.click(); }
-                        """)
-                        page.wait_for_timeout(500)
 
+                            // Xóa hẳn lớp nền đen (cdk-overlay-container) của Angular Material để nút bên dưới click được
+                            document.querySelectorAll('.cdk-overlay-container').forEach(e => e.remove());
+                        """)
+                        page.wait_for_timeout(1000)
+
+                        # --- HACK 2: Tương tác Form ---
                         inputs = page.query_selector_all('input')
                         print(f"  [DEBUG-PLAYWRIGHT] Found {len(inputs)} input fields on page", flush=True)
 
@@ -134,51 +142,48 @@ class PlaywrightCrawler:
                                 inp_type = inp.get_attribute('type') or 'text'
                                 inp_id = inp.get_attribute('id') or ''
                                 inp_name = inp.get_attribute('name') or ''
-                                placeholder = inp.get_attribute('placeholder') or ''
 
                                 if 'email' in inp_id.lower() or 'email' in inp_name.lower():
                                     inp.focus()
                                     inp.fill('admin@juice-sh.op')
-                                    print(f"  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
+                                    print("  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
                                 elif inp_type == 'password':
                                     inp.focus()
                                     inp.fill('admin123')
-                                    print(f"  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
-                                elif 'search' in inp_id.lower() or 'search' in inp_name.lower() or 'search' in placeholder.lower():
-                                    inp.focus()
-                                    inp.fill('apple')
-                                    page.keyboard.press("Enter")
-                                    print(f"  [DEBUG-PLAYWRIGHT] Performed search query", flush=True)
+                                    print("  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
                                 else:
                                     inp.focus()
-                                    inp.fill('test_fuzzing_data')
+                                    inp.fill('test_fuzzing')
                             except Exception:
                                 pass
 
+                        # Tính năng search của Juice Shop
                         search_icon = page.query_selector('.mat-search-button, #searchQuery')
                         if search_icon:
                             try:
                                 search_icon.click()
                                 page.keyboard.type('apple')
                                 page.keyboard.press("Enter")
-                                print(f"  [DEBUG-PLAYWRIGHT] Clicked search icon and submitted query", flush=True)
+                                print("  [DEBUG-PLAYWRIGHT] Submitted Search query 'apple'", flush=True)
                             except:
                                 pass
 
+                        # Bấm nút Login/Submit
                         buttons = page.query_selector_all('button:not([disabled])')
                         for btn in buttons:
                             try:
                                 btn_text = btn.inner_text().lower()
-                                if any(k in btn_text for k in
-                                       ['log in', 'login', 'submit', 'register', 'search', 'send']):
+                                if any(k in btn_text for k in ['log in', 'login', 'submit', 'register', 'send']):
                                     print(f"  [DEBUG-PLAYWRIGHT] Clicking action button: '{btn.inner_text()}'",
                                           flush=True)
-                                    btn.click()
+                                    # Ép buộc click kể cả khi bị che (force=True)
+                                    btn.click(force=True)
                                     page.wait_for_timeout(500)
-                            except:
+                            except Exception:
                                 pass
 
-                        page.wait_for_timeout(1500)
+                        # Đợi 2 giây cho API bay lên server và nhận phản hồi
+                        page.wait_for_timeout(2000)
                     except Exception as e:
                         print(f"  [DEBUG-PLAYWRIGHT] Failed to interact with {url}: {e}", flush=True)
 
