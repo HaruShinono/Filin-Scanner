@@ -120,68 +120,93 @@ class PlaywrightCrawler:
                         page.evaluate("""
                             const welcomeBtn = document.querySelector('button[aria-label="Close Welcome Banner"]');
                             if (welcomeBtn) { welcomeBtn.click(); }
-
                             const cookieBtn = document.querySelector('a[aria-label="dismiss cookie message"]');
                             if (cookieBtn) { cookieBtn.click(); }
-
                             document.querySelectorAll('.cdk-overlay-container').forEach(e => e.remove());
                         """)
                         page.wait_for_timeout(500)
 
-                        # --- 1. TƯƠNG TÁC FORM MẶC ĐỊNH ---
+                        # --- 1. TƯƠNG TÁC FORM MẶC ĐỊNH (LOGIN) ---
                         if "/#/login" in url or url.endswith("/login"):
                             email_input = page.query_selector('#email')
                             pass_input = page.query_selector('#password')
                             if email_input and pass_input:
-                                email_input.focus()
-                                email_input.fill('admin@juice-sh.op')
+                                email_input.fill('admin@juice-sh.op', force=True)
                                 print("  [DEBUG-PLAYWRIGHT] Filled email field", flush=True)
-
-                                pass_input.focus()
-                                pass_input.fill('admin123')
+                                pass_input.fill('admin123', force=True)
                                 print("  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
-
                                 page.wait_for_timeout(500)
 
                                 login_btn = page.query_selector('#loginButton')
                                 if login_btn:
                                     print("  [DEBUG-PLAYWRIGHT] Clicking login button", flush=True)
-                                    login_btn.click()
+                                    login_btn.click(force=True)
                                     page.wait_for_timeout(1000)
 
-                        search_icon = page.query_selector('#searchQuery')
+                        # --- 2. XỬ LÝ THANH TÌM KIẾM CỦA ANGULAR MATERIAL (JUICE SHOP) ---
+                        # Bắt biểu tượng kính lúp dựa trên text hoặc class
+                        search_icon = page.query_selector(
+                            '//mat-icon[text()="search"] | .mat-search_icon | .search-icon | #searchQuery')
                         if search_icon:
-                            search_icon.focus()
-                            search_icon.click()
-                            page.keyboard.type('apple')
-                            page.keyboard.press("Enter")
-                            print("  [DEBUG-PLAYWRIGHT] Submitted Search query 'apple'", flush=True)
-                            page.wait_for_timeout(1000)
+                            try:
+                                search_icon.click(force=True)
+                                page.wait_for_timeout(500)  # Đợi ô input trượt ra
 
-                        # --- 2. TỰ ĐỘNG PHÁT HIỆN VÀ KÍCH HOẠT FORM ẨN (DYNAMIC FORM REVEALER) ---
-                        # Chạy script phân tích các thành phần click trên DOM có khả năng mở ra form mới [1]
+                                # Tìm ô input đang hiển thị (trong Juice Shop nó không có ID cụ thể)
+                                # Lấy thẻ input text đầu tiên đang hiển thị trên màn hình
+                                search_inputs = page.query_selector_all('input[type="text"]')
+                                for inp in search_inputs:
+                                    if inp.is_visible():
+                                        inp.fill('apple', force=True)
+                                        page.keyboard.press("Enter")
+                                        print("  [DEBUG-PLAYWRIGHT] Clicked search icon and submitted query",
+                                              flush=True)
+                                        page.wait_for_timeout(1000)
+                                        break
+                            except Exception as e:
+                                print(f"  [DEBUG-PLAYWRIGHT] Search interaction failed: {e}", flush=True)
+
+                        # --- 3. DYNAMIC FORM FUZZING TỔNG HỢP ---
+                        # Điền dữ liệu bừa vào TẤT CẢ các thẻ input trên màn hình và bấm Enter
+                        all_inputs = page.query_selector_all('input:not([type="hidden"]), textarea')
+                        for inp in all_inputs:
+                            try:
+                                # Chỉ điền nếu ô đó rỗng
+                                val = inp.evaluate("el => el.value")
+                                if not val:
+                                    inp.fill('test_payload', force=True)
+                                    # Bấm Enter để giả lập việc gửi Form
+                                    inp.press("Enter")
+                                    page.wait_for_timeout(200)
+                            except:
+                                pass
+
+                        # Click mù vào tất cả các nút có khả năng gửi dữ liệu
+                        buttons = page.query_selector_all('button:not([disabled])')
+                        for btn in buttons:
+                            try:
+                                btn_text = (btn.inner_text() or "").lower()
+                                if any(k in btn_text for k in
+                                       ['submit', 'send', 'register', 'save', 'add', 'create', 'search']):
+                                    btn.click(force=True)
+                                    page.wait_for_timeout(500)
+                            except:
+                                pass
+
+                        # DYNAMIC FORM REVEALER (Tự động mở các form ẩn như Review, Feedback)
                         revealer_elements = page.evaluate("""() => {
                             const triggerKeywords = ['add', 'create', 'new', 'show', 'expand', 'advanced', 'toggle', 'forgot', 'feedback', 'review', 'comment', 'write'];
                             const blacklist = ['logout', 'signout', 'sign out', 'delete', 'remove', 'exit', 'cancel', 'login', 'log in', 'signin'];
-
-                            const clickables = Array.from(document.querySelectorAll('button, a, [role="button"], .mat-button, .btn'));
+                            const clickables = Array.from(document.querySelectorAll('button, a, [role="button"], .mat-button, .btn, mat-icon'));
                             const found = [];
-
                             clickables.forEach((el, index) => {
                                 const text = (el.innerText || el.textContent || "").toLowerCase().trim();
                                 const matchesTrigger = triggerKeywords.some(kw => text.includes(kw));
                                 const matchesBlacklist = blacklist.some(kw => text.includes(kw));
-
-                                // Kiểm tra xem phần tử có hiển thị trên màn hình không
                                 const isVisible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-
                                 if (matchesTrigger && !matchesBlacklist && isVisible) {
-                                    // Gắn thuộc tính tạm để định danh khi quay lại Python
                                     el.setAttribute('data-scan-revealer', 'true');
-                                    found.push({
-                                        text: text,
-                                        tagName: el.tagName.toLowerCase()
-                                    });
+                                    found.push({ text: text, tagName: el.tagName.toLowerCase() });
                                 }
                             });
                             return found;
@@ -191,7 +216,6 @@ class PlaywrightCrawler:
                             print(
                                 f"  [DEBUG-PLAYWRIGHT] Found {len(revealer_elements)} potential form-revealer elements.",
                                 flush=True)
-                            # Giới hạn click tối đa 5 nút để tránh lặp vô tận hoặc tốn thời gian
                             for i in range(min(len(revealer_elements), 5)):
                                 try:
                                     revealers = page.query_selector_all('[data-scan-revealer="true"]')
@@ -201,26 +225,21 @@ class PlaywrightCrawler:
                                             f"  [DEBUG-PLAYWRIGHT] Clicking form-revealer: '{revealer_elements[i]['text']}'",
                                             flush=True)
                                         target_btn.click(force=True)
-                                        page.wait_for_timeout(1500)  # Đợi form/modal/dialog render xong
+                                        page.wait_for_timeout(1500)
 
-                                        # Quét và tự động điền các ô nhập liệu mới xuất hiện bên trong modal/form vừa mở
-                                        new_inputs = page.query_selector_all('input, textarea')
+                                        # Điền vào các ô input mới hiện ra và bấm Enter
+                                        new_inputs = page.query_selector_all('input:not([type="hidden"]), textarea')
                                         for inp in new_inputs:
                                             try:
-                                                # Chỉ điền nếu ô đó rỗng
                                                 val = inp.evaluate("el => el.value")
                                                 if not val:
-                                                    inp.focus()
-                                                    inp.fill('test_fuzzing_data')
+                                                    inp.fill('test_fuzzing_data', force=True)
                                                     page.wait_for_timeout(100)
                                             except:
                                                 pass
 
-                                        # Bấm Enter để kích hoạt submit dữ liệu lên API
                                         page.keyboard.press("Enter")
                                         page.wait_for_timeout(1000)
-
-                                        # Gửi phím Escape để đóng modal, khôi phục trạng thái ban đầu của trang
                                         page.keyboard.press("Escape")
                                         page.wait_for_timeout(500)
                                 except:
