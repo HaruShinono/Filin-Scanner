@@ -20,7 +20,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
 ]
 
 
@@ -37,12 +41,14 @@ class Vulnerability:
 
 
 class Scanner:
+    # [MỚI] Thêm tham số waf_detected
     def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10,
-                 pre_crawled_urls: set = None, discovered_forms: list = None):
+                 pre_crawled_urls: set = None, discovered_forms: list = None, waf_detected: bool = False):
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
         self.threads = threads
+        self.waf_detected = waf_detected  # Lưu cờ WAF
         self.session = self._create_session()
 
         if cookies:
@@ -53,9 +59,12 @@ class Scanner:
             self.visited_urls.add(self.base_url)
 
         self.discovered_forms = discovered_forms if discovered_forms else []
+
         self.lock = threading.Lock()
+
         self.payload_config = self._load_payload_config()
         self.testers = self._load_testers()
+        logger.info(f"Loaded {len(self.testers)} tester modules.")
 
     def _create_session(self) -> requests.Session:
         session = requests.Session()
@@ -63,13 +72,25 @@ class Scanner:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
 
-        spoofed_ip = f"{random.randint(11, 250)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
-        session.headers.update({
-            'User-Agent': random.choice(USER_AGENTS),
+        # Headers cơ bản luôn có mặt (Bao gồm bypass Ngrok)
+        headers = {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
-            'X-Forwarded-For': spoofed_ip,
             'ngrok-skip-browser-warning': 'true'
-        })
+        }
+
+        # [MỚI] NẾU CÓ WAF: Bật Evasion Techniques
+        if self.waf_detected:
+            spoofed_ip = f"{random.randint(11, 250)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+            headers['X-Forwarded-For'] = spoofed_ip
+            headers['X-Real-IP'] = spoofed_ip
+            headers['Client-IP'] = spoofed_ip
+            headers['User-Agent'] = random.choice(USER_AGENTS)
+            logger.info("WAF detected. Enabled IP Spoofing and User-Agent rotation.")
+        else:
+            headers['User-Agent'] = USER_AGENTS[0]  # Dùng UA chuẩn nếu không có WAF
+
+        session.headers.update(headers)
         session.verify = False
         return session
 
@@ -116,24 +137,14 @@ class Scanner:
         return url
 
     def scan(self, vulnerability_callback: Optional[Callable[[Vulnerability], None]] = None):
-        print("\n" + "=" * 50, flush=True)
-        print("🎯 TARGET ATTACK POINTS SECURED", flush=True)
-        print("=" * 50, flush=True)
-        for form in self.discovered_forms:
-            params = [i['name'] for i in form.get('inputs', [])]
-            print(f" [+] {form['method']} {form['url']} | Params: {params}", flush=True)
-        print("=" * 50 + "\n", flush=True)
-
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = {}
             for tester in self.testers:
                 tester_name = tester.__class__.__name__
 
-                # 1. URL Injection
                 for url in self.visited_urls:
                     futures[executor.submit(tester.test, url)] = (tester_name, url)
 
-                # 2. Form/API Injection
                 if hasattr(tester, 'test_form'):
                     for form in self.discovered_forms:
                         futures[executor.submit(tester.test_form, form)] = (tester_name,

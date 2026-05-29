@@ -30,7 +30,7 @@ from utils.tree_builder import build_site_tree
 try:
     with open('config/knowledge_base.yml', 'r', encoding='utf-8') as f:
         KNOWLEDGE_BASE = yaml.safe_load(f)
-except Exception as e:
+except Exception:
     KNOWLEDGE_BASE = {}
 
 
@@ -64,6 +64,7 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
             details_str += f"|leak_type:{vuln.details['leak_type']}"
         elif 'form_action' in vuln.details:
             details_str += f"|action:{vuln.details['form_action']}"
+
     if any(g_type in vuln.type for g_type in GLOBAL_VULN_TYPES):
         unique_string = f"{vuln.type}|{vuln.subcategory}|{domain}{details_str}"
     else:
@@ -72,11 +73,7 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
 
 
 def check_host_alive(url: str, cookies: str = None) -> bool:
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'ngrok-skip-browser-warning': 'true'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0', 'ngrok-skip-browser-warning': 'true'}
     cookie_dict = {}
     if cookies:
         for item in cookies.split(';'):
@@ -113,84 +110,30 @@ def run_scan_task(scan_id: int):
         db.session.commit()
 
         seen_vuln_hashes = set()
+        waf_detected = False
 
         try:
-            scraped_urls = set()
-            scraped_forms = []
-            crawl_depth = 0 if scan.scan_mode == 'single' else 2
-
-            # --- PHASE 0: CRAWLING & SITE TREE GENERATION ---
-            if crawl_depth > 0:
-                print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
-                with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
-                    out_file = tmp_file.name
-
-                cmd = ['scrapy', 'runspider', 'integrations/scrapy_spider.py', '-a', f'target={scan.target_url}', '-a',
-                       f'depth_limit={crawl_depth}']
-                if scan.auth_cookies: cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
-                cmd.extend(['-o', out_file])
-                subprocess.run(cmd, capture_output=True)
-
-                if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
-                    with open(out_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        for item in data:
-                            if item.get('type') == 'url':
-                                scraped_urls.add(item['url'])
-                            elif item.get('type') == 'form':
-                                scraped_forms.append(item)
-                if os.path.exists(out_file): os.remove(out_file)
-            else:
-                scraped_urls.add(scan.target_url)
-
-            print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
-            pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
-            hidden_apis = pw_crawler.crawl()
-            if hidden_apis:
-                scraped_forms.extend(hidden_apis)
-                for api in hidden_apis:
-                    scraped_urls.add(api['url'])
-
-            swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
-            if swagger_forms:
-                scraped_forms.extend(swagger_forms)
-                print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
-                for sf in swagger_forms:
-                    scraped_urls.add(sf['url'])
-
-            scraped_urls.add(scan.target_url)
-
-            site_tree = build_site_tree(list(scraped_urls))
-            scan.site_tree = json.dumps(site_tree)
-            scan.discovered_forms = json.dumps(scraped_forms)
-            db.session.commit()
-            print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
-                  flush=True)
-
-            # --- PHASE 1: RECONNAISSANCE ---
-            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
 
-            # 1. Traditional WAF Detection (WAFW00F)
+            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
+
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
+                waf_detected = True
                 db.session.add(ReconFinding(scan_id=scan.id, tool='wafw00f', finding_type='WAF Detected',
                                             details=json.dumps(waf_result)))
                 db.session.commit()
+                print(f"  [Recon] WAF Detected: {waf_result.get('firewall', 'Unknown')}. Enabling evasive measures.",
+                      flush=True)
 
-            # 2. Active WAF Bypass Tool
-            waf_bypass_results = run_waf_bypass(scan.target_url)
-            for result in waf_bypass_results:
-                db.session.add(ReconFinding(
-                    scan_id=scan.id,
-                    tool=result['tool'],
-                    finding_type=result['finding_type'],
-                    details=json.dumps(result['details'])
-                ))
-            db.session.commit()
+                waf_bypass_results = run_waf_bypass(scan.target_url)
+                for result in waf_bypass_results:
+                    db.session.add(
+                        ReconFinding(scan_id=scan.id, tool=result['tool'], finding_type=result['finding_type'],
+                                     details=json.dumps(result['details'])))
+                db.session.commit()
 
-            # 3. DNS Reconnaissance
             if domain and not is_ip_address(domain):
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -199,7 +142,6 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(record)))
                 db.session.commit()
 
-            # 4. Port Scanning & Service Audit (Nmap)
             if domain:
                 nmap_data = run_nmap(domain)
                 for port_info in nmap_data.get('ports', []):
@@ -233,8 +175,7 @@ def run_scan_task(scan_id: int):
                                                              cvss_score=temp_vuln.cvss_score or kb_info.get(
                                                                  'cvss_score'),
                                                              cvss_vector=temp_vuln.cvss_vector or kb_info.get(
-                                                                 'cvss_vector'),
-                                                             cwe=kb_info.get('cwe', 'N/A'),
+                                                                 'cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
                                                              details=json.dumps(temp_vuln.details, indent=2)))
                                 seen_vuln_hashes.add(v_hash)
 
@@ -243,14 +184,65 @@ def run_scan_task(scan_id: int):
                                                 finding_type=f"NSE: {vuln_info.get('script_id')}",
                                                 details=json.dumps(vuln_info)))
                 db.session.commit()
+            print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
-            # --- PHASE 2: NUCLEI SCANNING ---
+            scraped_urls = set()
+            scraped_forms = []
+            crawl_depth = 0 if scan.scan_mode == 'single' else 2
+
+            if crawl_depth > 0:
+                print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
+                with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
+                    out_file = tmp_file.name
+
+                cmd = ['scrapy', 'runspider', 'integrations/scrapy_spider.py', '-a', f'target={scan.target_url}', '-a',
+                       f'depth_limit={crawl_depth}']
+                if scan.auth_cookies: cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
+                cmd.extend(['-o', out_file])
+                subprocess.run(cmd, capture_output=True)
+
+                if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
+                    with open(out_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for item in data:
+                            if item.get('type') == 'url':
+                                scraped_urls.add(item['url'])
+                            elif item.get('type') == 'form':
+                                scraped_forms.append(item)
+                if os.path.exists(out_file): os.remove(out_file)
+            else:
+                scraped_urls.add(scan.target_url)
+
+            print(f"[Scan ID: {scan_id}] Running Playwright Engine...", flush=True)
+            pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
+            hidden_apis = pw_crawler.crawl()
+            if hidden_apis:
+                scraped_forms.extend(hidden_apis)
+                for api in hidden_apis:
+                    scraped_urls.add(api['url'])
+
+            swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
+            if swagger_forms:
+                scraped_forms.extend(swagger_forms)
+                print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
+                for sf in swagger_forms:
+                    scraped_urls.add(sf['url'])
+
+            scraped_urls.add(scan.target_url)
+
+            site_tree = build_site_tree(list(scraped_urls))
+            scan.site_tree = json.dumps(site_tree)
+            scan.discovered_forms = json.dumps(scraped_forms)
+            db.session.commit()
+            print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
+                  flush=True)
+
             print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             for n_vuln in run_nuclei(scan.target_url):
-                nuclei_temp = VulnerabilityDataClass(
-                    type=f"[Nuclei] {n_vuln['type']}", subcategory=n_vuln['details'].get('template_id'),
-                    url=n_vuln['url'], severity=n_vuln['severity'], details=n_vuln['details']
-                )
+                nuclei_temp = VulnerabilityDataClass(type=f"[Nuclei] {n_vuln['type']}",
+                                                     subcategory=n_vuln['details'].get('template_id'),
+                                                     url=n_vuln['url'], severity=n_vuln['severity'],
+                                                     details=n_vuln['details'])
                 v_hash = _generate_dedup_hash(nuclei_temp)
                 if v_hash not in seen_vuln_hashes:
                     kb_info = get_kb_info(nuclei_temp.type)
@@ -262,7 +254,6 @@ def run_scan_task(scan_id: int):
                     seen_vuln_hashes.add(v_hash)
             db.session.commit()
 
-            # --- PHASE 3: SQLMAP SCANNING ---
             print(f"[Scan ID: {scan_id}] Running sqlmap...", flush=True)
             for result in run_sqlmap(scan.target_url, scan.auth_cookies):
                 title = f"SQL Injection (Verified by sqlmap) - {len(result.get('findings', []))} points"
@@ -274,7 +265,6 @@ def run_scan_task(scan_id: int):
                                              details=json.dumps(result, indent=2)))
             db.session.commit()
 
-            # --- PHASE 4: CORE PYTHON SCANNING ---
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
                   flush=True)
@@ -302,8 +292,12 @@ def run_scan_task(scan_id: int):
                     seen_vuln_hashes.add(v_hash)
 
             scanner_instance = Scanner(
-                url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
-                pre_crawled_urls=scraped_urls, discovered_forms=scraped_forms
+                url=scan.target_url,
+                cookies=scan.auth_cookies,
+                depth=crawl_depth,
+                pre_crawled_urls=scraped_urls,
+                discovered_forms=scraped_forms,
+                waf_detected=waf_detected
             )
             scanner_instance.scan(vulnerability_callback=save_vulnerability_callback)
 
