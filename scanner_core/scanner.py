@@ -43,7 +43,7 @@ class Vulnerability:
 class Scanner:
     # [MỚI] Thêm tham số waf_detected
     def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10,
-                 pre_crawled_urls: set = None, discovered_forms: list = None, waf_detected: bool = False):
+                 pre_crawled_urls: set = None, discovered_forms: list = None, waf_detected: bool = False, is_windows: bool = False):
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
@@ -63,6 +63,7 @@ class Scanner:
         self.lock = threading.Lock()
 
         self.payload_config = self._load_payload_config()
+        self.payload_config['is_windows'] = self.is_windows
         self.testers = self._load_testers()
         logger.info(f"Loaded {len(self.testers)} tester modules.")
 
@@ -128,6 +129,7 @@ class Scanner:
                     for name, obj in inspect.getmembers(module, inspect.isclass):
                         if issubclass(obj, BaseTester) and obj is not BaseTester:
                             tester_config = self.payload_config.get(config_key, {})
+                            tester_config['is_windows'] = self.is_windows
                             testers_list.append(obj(self.session, tester_config))
                 except Exception:
                     pass

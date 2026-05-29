@@ -7,8 +7,8 @@ def run_wappalyzer(target: str) -> dict | None:
         print("[-] Error: 'wappalyzer' is not installed.", flush=True)
         return None
 
-    # wappalyzer trả về JSON trực tiếp qua stdout
-    cmd = ['wappalyzer', target]
+    # Use the -i flag as specified by the wappalyzer CLI usage definition
+    cmd = ['wappalyzer', '-i', target]
     output = run_command(cmd)
 
     if output:
