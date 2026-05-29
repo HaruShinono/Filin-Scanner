@@ -144,16 +144,14 @@ class PlaywrightCrawler:
                                     page.wait_for_timeout(1000)
 
                         # --- 2. XỬ LÝ THANH TÌM KIẾM CỦA ANGULAR MATERIAL (JUICE SHOP) ---
-                        # Bắt biểu tượng kính lúp dựa trên text hoặc class
+                        # [SỬA LỖI] Chuyển đổi XPath sang chuỗi CSS Selector chuẩn của Playwright
                         search_icon = page.query_selector(
-                            '//mat-icon[text()="search"] | .mat-search_icon | .search-icon | #searchQuery')
+                            'mat-icon:has-text("search"), .mat-search_icon, .search-icon, #searchQuery')
                         if search_icon:
                             try:
                                 search_icon.click(force=True)
-                                page.wait_for_timeout(500)  # Đợi ô input trượt ra
+                                page.wait_for_timeout(500)
 
-                                # Tìm ô input đang hiển thị (trong Juice Shop nó không có ID cụ thể)
-                                # Lấy thẻ input text đầu tiên đang hiển thị trên màn hình
                                 search_inputs = page.query_selector_all('input[type="text"]')
                                 for inp in search_inputs:
                                     if inp.is_visible():
@@ -167,21 +165,17 @@ class PlaywrightCrawler:
                                 print(f"  [DEBUG-PLAYWRIGHT] Search interaction failed: {e}", flush=True)
 
                         # --- 3. DYNAMIC FORM FUZZING TỔNG HỢP ---
-                        # Điền dữ liệu bừa vào TẤT CẢ các thẻ input trên màn hình và bấm Enter
                         all_inputs = page.query_selector_all('input:not([type="hidden"]), textarea')
                         for inp in all_inputs:
                             try:
-                                # Chỉ điền nếu ô đó rỗng
                                 val = inp.evaluate("el => el.value")
                                 if not val:
                                     inp.fill('test_payload', force=True)
-                                    # Bấm Enter để giả lập việc gửi Form
                                     inp.press("Enter")
                                     page.wait_for_timeout(200)
                             except:
                                 pass
 
-                        # Click mù vào tất cả các nút có khả năng gửi dữ liệu
                         buttons = page.query_selector_all('button:not([disabled])')
                         for btn in buttons:
                             try:
@@ -193,7 +187,7 @@ class PlaywrightCrawler:
                             except:
                                 pass
 
-                        # DYNAMIC FORM REVEALER (Tự động mở các form ẩn như Review, Feedback)
+                        # DYNAMIC FORM REVEALER
                         revealer_elements = page.evaluate("""() => {
                             const triggerKeywords = ['add', 'create', 'new', 'show', 'expand', 'advanced', 'toggle', 'forgot', 'feedback', 'review', 'comment', 'write'];
                             const blacklist = ['logout', 'signout', 'sign out', 'delete', 'remove', 'exit', 'cancel', 'login', 'log in', 'signin'];
@@ -227,7 +221,6 @@ class PlaywrightCrawler:
                                         target_btn.click(force=True)
                                         page.wait_for_timeout(1500)
 
-                                        # Điền vào các ô input mới hiện ra và bấm Enter
                                         new_inputs = page.query_selector_all('input:not([type="hidden"]), textarea')
                                         for inp in new_inputs:
                                             try:
@@ -256,5 +249,6 @@ class PlaywrightCrawler:
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms!", flush=True)
+        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms via Deep Interception!",
+              flush=True)
         return self.discovered_apis
