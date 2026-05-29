@@ -44,6 +44,7 @@ class Scanner:
     # [MỚI] Thêm tham số waf_detected
     def __init__(self, url: str, cookies: Optional[str] = None, depth: int = 2, threads: int = 10,
                  pre_crawled_urls: set = None, discovered_forms: list = None, waf_detected: bool = False, is_windows: bool = False):
+        self.is_windows = is_windows
         self.base_url = self._normalize_url(url)
         self.domain = urlparse(self.base_url).netloc
         self.depth = depth
