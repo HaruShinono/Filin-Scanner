@@ -116,7 +116,6 @@ class PlaywrightCrawler:
                         page.goto(url, wait_until="domcontentloaded", timeout=10000)
                         page.wait_for_timeout(2000)
 
-                        # Tắt các banner gây che khuất
                         page.evaluate("""
                             const welcomeBtn = document.querySelector('button[aria-label="Close Welcome Banner"]');
                             if (welcomeBtn) { welcomeBtn.click(); }
@@ -126,7 +125,6 @@ class PlaywrightCrawler:
                         """)
                         page.wait_for_timeout(500)
 
-                        # --- 1. TƯƠNG TÁC FORM MẶC ĐỊNH (LOGIN) ---
                         if "/#/login" in url or url.endswith("/login"):
                             email_input = page.query_selector('#email')
                             pass_input = page.query_selector('#password')
@@ -136,17 +134,30 @@ class PlaywrightCrawler:
                                 pass_input.fill('admin123', force=True)
                                 print("  [DEBUG-PLAYWRIGHT] Filled password field", flush=True)
                                 page.wait_for_timeout(500)
-
                                 login_btn = page.query_selector('#loginButton')
                                 if login_btn:
                                     print("  [DEBUG-PLAYWRIGHT] Clicking login button", flush=True)
                                     login_btn.click(force=True)
                                     page.wait_for_timeout(1000)
 
-                        # --- 2. XỬ LÝ THANH TÌM KIẾM CỦA ANGULAR MATERIAL (JUICE SHOP) ---
-                        # [SỬA LỖI] Chuyển đổi XPath sang chuỗi CSS Selector chuẩn của Playwright
-                        search_icon = page.query_selector(
-                            'mat-icon:has-text("search"), .mat-search_icon, .search-icon, #searchQuery')
+                        # --- SỬA LỖI SEARCH ICON TẠI ĐÂY ---
+                        search_selectors = [
+                            'xpath=//mat-icon[text()="search"]',
+                            '.mat-search_icon',
+                            '.search-icon',
+                            '#searchQuery'
+                        ]
+
+                        search_icon = None
+                        for selector in search_selectors:
+                            try:
+                                el = page.query_selector(selector)
+                                if el and el.is_visible():
+                                    search_icon = el
+                                    break
+                            except:
+                                pass
+
                         if search_icon:
                             try:
                                 search_icon.click(force=True)
@@ -163,8 +174,8 @@ class PlaywrightCrawler:
                                         break
                             except Exception as e:
                                 print(f"  [DEBUG-PLAYWRIGHT] Search interaction failed: {e}", flush=True)
+                        # -----------------------------------
 
-                        # --- 3. DYNAMIC FORM FUZZING TỔNG HỢP ---
                         all_inputs = page.query_selector_all('input:not([type="hidden"]), textarea')
                         for inp in all_inputs:
                             try:
@@ -187,7 +198,6 @@ class PlaywrightCrawler:
                             except:
                                 pass
 
-                        # DYNAMIC FORM REVEALER
                         revealer_elements = page.evaluate("""() => {
                             const triggerKeywords = ['add', 'create', 'new', 'show', 'expand', 'advanced', 'toggle', 'forgot', 'feedback', 'review', 'comment', 'write'];
                             const blacklist = ['logout', 'signout', 'sign out', 'delete', 'remove', 'exit', 'cancel', 'login', 'log in', 'signin'];
@@ -249,6 +259,5 @@ class PlaywrightCrawler:
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms via Deep Interception!",
-              flush=True)
+        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms!", flush=True)
         return self.discovered_apis
