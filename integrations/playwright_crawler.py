@@ -54,7 +54,7 @@ class PlaywrightCrawler:
                 for k, v in parse_qsl(parsed.query):
                     inputs.append({'name': k, 'value': v, 'type': 'text'})
 
-            # Xử lý query params bị giấu trong Fragment của SPA (VD: /search?q=apple)
+            # Xử lý query params bị giấu trong Fragment của SPA (VD: /#/search?q=apple)
             if parsed.fragment and '?' in parsed.fragment:
                 try:
                     frag_query = parsed.fragment.split('?', 1)[1]
@@ -128,11 +128,11 @@ class PlaywrightCrawler:
                 else:
                     test_routes = [
                         f"{self.base_url}/",
-                        f"{self.base_url}/login",
-                        f"{self.base_url}/register",
-                        f"{self.base_url}/search",
-                        f"{self.base_url}/contact",
-                        f"{self.base_url}/basket"
+                        f"{self.base_url}/#/login",
+                        f"{self.base_url}/#/register",
+                        f"{self.base_url}/#/search",
+                        f"{self.base_url}/#/contact",
+                        f"{self.base_url}/#/basket"
                     ]
 
                 for url in test_routes:
@@ -152,7 +152,7 @@ class PlaywrightCrawler:
                         """)
                         page.wait_for_timeout(500)
 
-                        if "/login" in url or url.endswith("/login"):
+                        if "/#/login" in url or url.endswith("/login"):
                             email_input = page.query_selector('#email')
                             pass_input = page.query_selector('#password')
                             if email_input and pass_input:
