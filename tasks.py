@@ -250,11 +250,16 @@ def run_scan_task(scan_id: int):
 
             print(f"[Scan ID: {scan_id}] Running Playwright Engine...", flush=True)
             pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
-            hidden_apis = pw_crawler.crawl()
+            hidden_apis, mutated_urls = pw_crawler.crawl()
+
             if hidden_apis:
                 scraped_forms.extend(hidden_apis)
                 for api in hidden_apis:
                     scraped_urls.add(api['url'])
+
+            if mutated_urls:
+                for m_url in mutated_urls:
+                    scraped_urls.add(m_url)
 
             swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
             if swagger_forms:

@@ -14,7 +14,51 @@ class XssTester(BaseTester):
         self.payloads = self.config.get('payloads', [])
 
     def test(self, url: str) -> List[Vulnerability]:
-        return []
+        vulns = []
+        parsed_url = urlparse(url)
+        if not parsed_url.query:
+            return vulns
+
+        query_params = parse_qs(parsed_url.query)
+
+        for param in query_params:
+            for payload in self.payloads:
+                # [MỚI] Bảo vệ chống lỗi parse YAML (Bỏ qua nếu payload bị hiểu nhầm thành list/dict)
+                if not isinstance(payload, str):
+                    continue
+
+                test_params = query_params.copy()
+                test_params[param] = payload
+                test_url = urlunparse(parsed_url._replace(query=urlencode(test_params, doseq=True)))
+
+                try:
+                    resp = self.fetch(test_url)
+                    if not resp: continue
+
+                    content_type = resp.headers.get('Content-Type', '').lower()
+
+                    if payload in resp.text:
+                        if 'application/json' in content_type:
+                            vulns.append(Vulnerability(
+                                type='Cross-Site Scripting (XSS)', subcategory='API Reflected XSS', url=test_url,
+                                details={'parameter': param, 'payload': payload,
+                                         'evidence': 'Unescaped payload reflected directly in JSON API response.'},
+                                severity='High'
+                            ))
+                            break
+                        elif 'text/html' in content_type:
+                            soup = BeautifulSoup(resp.text, 'html.parser')
+                            if self._verify_execution_context(soup, payload):
+                                vulns.append(Vulnerability(
+                                    type='Cross-Site Scripting (XSS)', subcategory='Reflected XSS', url=test_url,
+                                    details={'parameter': param, 'payload': payload,
+                                             'evidence': 'Payload reflected in executable HTML context.'},
+                                    severity='High'
+                                ))
+                                break
+                except requests.RequestException:
+                    continue
+        return vulns
 
     def test_form(self, form_data: dict) -> List[Vulnerability]:
         """Kiểm tra XSS trên Form và JSON API với Debug log"""
@@ -36,6 +80,10 @@ class XssTester(BaseTester):
                 param = target_input['name']
 
                 for payload in self.payloads:
+                    # [MỚI] Bảo vệ chống lỗi parse YAML
+                    if not isinstance(payload, str):
+                        continue
+
                     print(f"  [DEBUG-XSS] Testing Param [{param}] with Payload: {payload[:50]}...", flush=True)
                     try:
                         resp = self._inject_form_payload(url, method, inputs, param, payload, is_api, captured_headers)
@@ -95,6 +143,12 @@ class XssTester(BaseTester):
                 return self.session.get(url, params=data, timeout=10, verify=False, headers=headers)
             if is_api or 'api' in url.lower():
                 headers['Content-Type'] = 'application/json'
+                if method == 'PUT':
+                    return self.session.put(url, json=data, timeout=10, verify=False, headers=headers)
+                elif method == 'PATCH':
+                    return self.session.patch(url, json=data, timeout=10, verify=False, headers=headers)
+                elif method == 'DELETE':
+                    return self.session.delete(url, json=data, timeout=10, verify=False, headers=headers)
                 return self.session.post(url, json=data, timeout=10, verify=False, headers=headers)
             else:
                 return self.session.post(url, data=data, timeout=10, verify=False, headers=headers)

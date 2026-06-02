@@ -1,7 +1,8 @@
 import json
 import logging
-from urllib.parse import urlparse, parse_qsl
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,8 @@ class PlaywrightCrawler:
         self.base_url = f"{urlparse(target_url).scheme}://{urlparse(target_url).netloc}"
         self.discovered_apis = []
         self.seen_signatures = set()
+        # [MỚI BỔ SUNG] Lưu các URL Frontend bị thay đổi (chứa tham số) sau khi tương tác
+        self.mutated_urls = set()
 
     def _handle_request(self, request):
         url = request.url
@@ -46,53 +49,27 @@ class PlaywrightCrawler:
                             k, v = pair.split('=', 1)
                             inputs.append({'name': k, 'value': v, 'type': 'text'})
 
-            # --- SỬA LỖI: TRÍCH XUẤT THAM SỐ TỪ URL (Hỗ trợ cả SPA Fragment) ---
-            parsed = urlparse(url)
-
-            # Xử lý query params truyền thống (VD: /api/search?q=apple)
-            if parsed.query:
-                for k, v in parse_qsl(parsed.query):
+            if method == 'GET' and '?' in url:
+                from urllib.parse import parse_qsl
+                query = url.split('?')[1]
+                for k, v in parse_qsl(query):
                     inputs.append({'name': k, 'value': v, 'type': 'text'})
 
-            # Xử lý query params bị giấu trong Fragment của SPA (VD: /#/search?q=apple)
-            if parsed.fragment and '?' in parsed.fragment:
-                try:
-                    frag_query = parsed.fragment.split('?', 1)[1]
-                    for k, v in parse_qsl(frag_query):
-                        # Tránh trùng lặp nếu Angular vừa nối vào query thật vừa nối vào fragment
-                        if not any(inp['name'] == k for inp in inputs):
-                            inputs.append({'name': k, 'value': v, 'type': 'text'})
-                except:
-                    pass
-            # -------------------------------------------------------------------
-
             if inputs or method != 'GET':
-                # Làm sạch URL: Lấy nguyên phần gốc, bỏ qua query params
-                clean_url = url.split('?')[0] if '?' in url else url
-                # Làm sạch luôn phần param của SPA Fragment nếu có
-                if '#' in clean_url and '?' in clean_url.split('#')[1]:
-                    clean_url = clean_url.split('#')[0] + '#' + clean_url.split('#')[1].split('?')[0]
-
                 api_finding = {
                     'type': 'form',
-                    'url': clean_url,
+                    'url': url.split('?')[0],
                     'method': method,
                     'inputs': inputs,
                     'is_api': is_api or 'application/json' in request.headers.get('content-type', '').lower(),
                     'headers': captured_headers
                 }
 
-                # Tạo signature để tránh ghi nhận trùng lặp
-                # Lưu ý: Sắp xếp tham số để tạo signature ổn định hơn
-                params_str = ",".join(sorted([i['name'] for i in inputs]))
-                sig = f"{method}:{api_finding['url']}|{params_str}"
-
+                sig = f"{method}:{api_finding['url']}"
                 if sig not in self.seen_signatures:
                     self.seen_signatures.add(sig)
                     self.discovered_apis.append(api_finding)
-                    print(
-                        f"  [DEBUG-PLAYWRIGHT] Captured Attack Surface: {method} {api_finding['url']} (Params: {params_str})",
-                        flush=True)
+                    print(f"  [DEBUG-PLAYWRIGHT] Captured API: {method} {api_finding['url']}", flush=True)
 
     def crawl(self):
         print(f"  [Playwright Crawler] Launching modern headless browser on {self.target_url}...", flush=True)
@@ -170,24 +147,10 @@ class PlaywrightCrawler:
                                     login_btn.click(force=True)
                                     page.wait_for_timeout(1000)
 
-                        # Tương tác với form Search
-                        search_selectors = [
-                            'xpath=//mat-icon[text()="search"]',
-                            '.mat-search_icon',
-                            '.search-icon',
-                            '#searchQuery'
-                        ]
+                                    # [MỚI BỔ SUNG] Lưu URL nếu có thay đổi tham số
+                                    if '?' in page.url: self.mutated_urls.add(page.url)
 
-                        search_icon = None
-                        for selector in search_selectors:
-                            try:
-                                el = page.query_selector(selector)
-                                if el and el.is_visible():
-                                    search_icon = el
-                                    break
-                            except:
-                                pass
-
+                        search_icon = page.query_selector('#searchQuery')
                         if search_icon:
                             try:
                                 search_icon.click(force=True)
@@ -196,12 +159,14 @@ class PlaywrightCrawler:
                                 search_inputs = page.query_selector_all('input[type="text"]')
                                 for inp in search_inputs:
                                     if inp.is_visible():
-                                        # Điền từ khóa Apple để bắt API REST /rest/products/search?q=apple
                                         inp.fill('apple', force=True)
                                         page.keyboard.press("Enter")
                                         print("  [DEBUG-PLAYWRIGHT] Clicked search icon and submitted query",
                                               flush=True)
                                         page.wait_for_timeout(1000)
+
+                                        # [MỚI BỔ SUNG] Ghi nhận lại URL Frontend (vd: /#/search?q=apple)
+                                        if '?' in page.url: self.mutated_urls.add(page.url)
                                         break
                             except Exception as e:
                                 print(f"  [DEBUG-PLAYWRIGHT] Search interaction failed: {e}", flush=True)
@@ -214,6 +179,9 @@ class PlaywrightCrawler:
                                     inp.fill('test_payload', force=True)
                                     inp.press("Enter")
                                     page.wait_for_timeout(200)
+
+                                    # [MỚI BỔ SUNG]
+                                    if '?' in page.url: self.mutated_urls.add(page.url)
                             except:
                                 pass
 
@@ -225,6 +193,9 @@ class PlaywrightCrawler:
                                        ['submit', 'send', 'register', 'save', 'add', 'create', 'search']):
                                     btn.click(force=True)
                                     page.wait_for_timeout(500)
+
+                                    # [MỚI BỔ SUNG]
+                                    if '?' in page.url: self.mutated_urls.add(page.url)
                             except:
                                 pass
 
@@ -273,6 +244,10 @@ class PlaywrightCrawler:
 
                                         page.keyboard.press("Enter")
                                         page.wait_for_timeout(1000)
+
+                                        # [MỚI BỔ SUNG]
+                                        if '?' in page.url: self.mutated_urls.add(page.url)
+
                                         page.keyboard.press("Escape")
                                         page.wait_for_timeout(500)
                                 except:
@@ -289,5 +264,8 @@ class PlaywrightCrawler:
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} Unique Attack Surfaces!", flush=True)
-        return self.discovered_apis
+        print(
+            f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms and {len(self.mutated_urls)} Parametrized Frontend URLs!",
+            flush=True)
+        # [MỚI BỔ SUNG] Trả về cả tuple (API list, URL list)
+        return self.discovered_apis, list(self.mutated_urls)
