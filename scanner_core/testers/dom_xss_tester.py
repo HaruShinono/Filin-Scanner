@@ -174,7 +174,7 @@ class DomXssTester(BaseTester):
                 """
                 driver.execute_script(trigger_script)
 
-                WebDriverWait(driver, 5).until(EC.alert_is_present())
+                WebDriverWait(driver, 2).until(EC.alert_is_present())
                 alert = driver.switch_to.alert
                 alert.accept()
                 return True
