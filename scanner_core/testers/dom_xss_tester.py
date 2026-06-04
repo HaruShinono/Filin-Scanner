@@ -36,7 +36,6 @@ class DomXssTester(BaseTester):
         return driver
 
     def _sync_session(self, driver, base_url):
-        """Đồng bộ Cookies và LocalStorage Token cho trình duyệt Selenium"""
         try:
             driver.get(f"{base_url}/favicon.ico")
             driver.add_cookie({'name': 'ngrok-skip-browser-warning', 'value': 'true', 'path': '/'})
@@ -49,11 +48,9 @@ class DomXssTester(BaseTester):
                     'domain': cookie.domain or urlparse(base_url).hostname,
                     'path': cookie.path or '/'
                 })
-                # Đọc JWT Token nếu tồn tại
                 if cookie.name.lower() in ['token', 'jwt', 'bearer'] or cookie.value.startswith('eyJ'):
                     token_value = cookie.value
 
-            # Ghi đè Token vào LocalStorage để bypass cấu hình phân quyền Client-side của Angular [2]
             if token_value:
                 driver.execute_script(f"localStorage.setItem('token', '{token_value}');")
         except Exception:
@@ -73,37 +70,45 @@ class DomXssTester(BaseTester):
         if any(parsed.path.lower().endswith(ext) for ext in ['.jpg', '.png', '.css', '.pdf', '.js', '.svg']):
             return vulns
 
+        print(f"  [DEBUG-DOMXSS] Analyzing Endpoint: {url}", flush=True)
+
         driver = None
         try:
             driver = self._get_selenium_driver()
             self._sync_session(driver, base_url)
 
+            # --- 1. Test Query Parameters thường (VD: /search?q=1) ---
             if has_query:
                 params = parse_qs(parsed.query)
                 for param in params:
                     for payload in self.payloads:
+                        if not isinstance(payload, str): continue
                         test_params = params.copy()
                         test_params[param] = payload
                         new_query = urlencode(test_params, doseq=True)
                         target_url = urlunparse(parsed._replace(query=new_query))
 
+                        print(f"  [DEBUG-DOMXSS] Fuzzing Query Param [{param}] -> {target_url[:80]}...", flush=True)
                         if self._check_alert(driver, target_url):
+                            print(f"  [DEBUG-DOMXSS] !!! DOM XSS SUCCESS ON [{param}] !!!", flush=True)
                             vulns.append(Vulnerability(
-                                type='DOM-based Cross-Site Scripting',
-                                subcategory='Source: location.search',
+                                type='Cross-Site Scripting (XSS)',
+                                subcategory='DOM-based XSS (Query)',
                                 url=target_url,
                                 details={'parameter': param, 'payload': payload,
-                                         'evidence': 'Javascript Alert executed in the headless browser.'},
+                                         'evidence': 'Javascript Alert executed in the headless browser via location.search.'},
                                 severity='High'
                             ))
                             break
 
+            # --- 2. Test SPA Fragment Parameters (VD: /#/search?q=1) ---
             if has_spa_query:
                 frag_path, frag_query = parsed.fragment.split('?', 1)
                 frag_params = parse_qs(frag_query)
 
                 for param in frag_params:
                     for payload in self.payloads:
+                        if not isinstance(payload, str): continue
                         test_frag_params = frag_params.copy()
                         test_frag_params[param] = payload
                         new_frag_query = urlencode(test_frag_params, doseq=True)
@@ -111,19 +116,21 @@ class DomXssTester(BaseTester):
                         new_fragment = f"{frag_path}?{new_frag_query}"
                         target_url = urlunparse(parsed._replace(fragment=new_fragment))
 
+                        print(f"  [DEBUG-DOMXSS] Fuzzing SPA Param [{param}] -> {target_url[:80]}...", flush=True)
                         if self._check_alert(driver, target_url):
+                            print(f"  [DEBUG-DOMXSS] !!! DOM XSS SUCCESS ON SPA [{param}] !!!", flush=True)
                             vulns.append(Vulnerability(
-                                type='DOM-based Cross-Site Scripting',
-                                subcategory='Source: location.hash',
+                                type='Cross-Site Scripting (XSS)',
+                                subcategory='DOM-based XSS (Fragment/Hash)',
                                 url=target_url,
                                 details={'parameter': param, 'payload': payload,
-                                         'evidence': 'Javascript Alert executed via SPA Client-side Router.'},
+                                         'evidence': 'Javascript Alert executed via SPA Client-side Router (location.hash).'},
                                 severity='High'
                             ))
                             break
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [DEBUG-DOMXSS] Error: {e}", flush=True)
         finally:
             if driver:
                 driver.quit()
@@ -131,14 +138,21 @@ class DomXssTester(BaseTester):
         return vulns
 
     def _check_alert(self, driver, url):
+        """Mở URL và cố gắng ép Payload phát nổ"""
         try:
+            # [QUAN TRỌNG] Ép trình duyệt mở trang trắng trước để xóa cache SPA Router
+            driver.get("about:blank")
+            # Sau đó mới mở URL có chứa payload
             driver.get(url)
+
+            # Chờ Angular render DOM hoàn chỉnh
             time.sleep(3)
 
+            # Bơm JS để Fuzz Event (ép các thẻ kích hoạt onmouseover, onfocus...)
             try:
                 trigger_script = """
                 var evts = ['mouseover', 'focus', 'click'];
-                var inputs = document.querySelectorAll('input, button, a, div');
+                var inputs = document.querySelectorAll('input, button, a, div, iframe, svg');
                 for(var i=0; i<Math.min(inputs.length, 50); i++) {
                     for(var e=0; e<evts.length; e++) {
                         try { inputs[i].dispatchEvent(new Event(evts[e])); } catch(err) {}
@@ -149,6 +163,7 @@ class DomXssTester(BaseTester):
             except:
                 pass
 
+                # Kiểm tra xem có popup Alert bật lên không
             alert = driver.switch_to.alert
             alert.accept()
             return True
@@ -156,6 +171,7 @@ class DomXssTester(BaseTester):
         except (NoAlertPresentException, TimeoutException):
             return False
         except UnexpectedAlertPresentException:
+            # Lỗi này văng ra tức là Alert CÓ BẬT LÊN nhưng code Selenium bị gián đoạn vì nó.
             return True
         except Exception:
             return False
