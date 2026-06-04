@@ -1,7 +1,9 @@
 from typing import List, Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+import urllib.parse  # Sửa lỗi import để dùng quote
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait  # Bổ sung Explicit Wait
+from selenium.webdriver.support import expected_conditions as EC  # Bổ sung Conditions
 from selenium.common.exceptions import UnexpectedAlertPresentException, NoAlertPresentException, TimeoutException
 import time
 import requests
@@ -45,7 +47,7 @@ class DomXssTester(BaseTester):
                 driver.add_cookie({
                     'name': cookie.name,
                     'value': cookie.value,
-                    'domain': cookie.domain or urlparse(base_url).hostname,
+                    'domain': cookie.domain or urllib.parse.urlparse(base_url).hostname,
                     'path': cookie.path or '/'
                 })
                 if cookie.name.lower() in ['token', 'jwt', 'bearer'] or cookie.value.startswith('eyJ'):
@@ -58,7 +60,7 @@ class DomXssTester(BaseTester):
 
     def test(self, url: str) -> List[Vulnerability]:
         vulns = []
-        parsed = urlparse(url)
+        parsed = urllib.parse.urlparse(url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
 
         has_query = bool(parsed.query)
@@ -79,16 +81,18 @@ class DomXssTester(BaseTester):
 
             # --- 1. Test Query Parameters thường (VD: /search?q=1) ---
             if has_query:
-                params = parse_qs(parsed.query)
+                params = urllib.parse.parse_qs(parsed.query)
                 for param in params:
                     for payload in self.payloads:
                         if not isinstance(payload, str): continue
                         test_params = params.copy()
                         test_params[param] = payload
-                        new_query = urlencode(test_params, doseq=True)
-                        target_url = urlunparse(parsed._replace(query=new_query))
 
-                        print(f"  [DEBUG-DOMXSS] Fuzzing Query Param [{param}] -> {target_url[:80]}...", flush=True)
+                        # [FIX LỖI URL ENCODING] Sử dụng quote thay vì quote_plus để khoảng trắng ra %20
+                        new_query = urllib.parse.urlencode(test_params, doseq=True, quote_via=urllib.parse.quote)
+                        target_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+                        print(f"  [DEBUG-DOMXSS] Fuzzing Query Param [{param}] -> {target_url[:100]}...", flush=True)
                         if self._check_alert(driver, target_url):
                             print(f"  [DEBUG-DOMXSS] !!! DOM XSS SUCCESS ON [{param}] !!!", flush=True)
                             vulns.append(Vulnerability(
@@ -104,19 +108,22 @@ class DomXssTester(BaseTester):
             # --- 2. Test SPA Fragment Parameters (VD: /#/search?q=1) ---
             if has_spa_query:
                 frag_path, frag_query = parsed.fragment.split('?', 1)
-                frag_params = parse_qs(frag_query)
+                frag_params = urllib.parse.parse_qs(frag_query)
 
                 for param in frag_params:
                     for payload in self.payloads:
                         if not isinstance(payload, str): continue
                         test_frag_params = frag_params.copy()
                         test_frag_params[param] = payload
-                        new_frag_query = urlencode(test_frag_params, doseq=True)
+
+                        # [FIX LỖI URL ENCODING] Ép khoảng trắng thành %20, không thành dấu +
+                        new_frag_query = urllib.parse.urlencode(test_frag_params, doseq=True,
+                                                                quote_via=urllib.parse.quote)
 
                         new_fragment = f"{frag_path}?{new_frag_query}"
-                        target_url = urlunparse(parsed._replace(fragment=new_fragment))
+                        target_url = urllib.parse.urlunparse(parsed._replace(fragment=new_fragment))
 
-                        print(f"  [DEBUG-DOMXSS] Fuzzing SPA Param [{param}] -> {target_url[:80]}...", flush=True)
+                        print(f"  [DEBUG-DOMXSS] Fuzzing SPA Param [{param}] -> {target_url[:100]}...", flush=True)
                         if self._check_alert(driver, target_url):
                             print(f"  [DEBUG-DOMXSS] !!! DOM XSS SUCCESS ON SPA [{param}] !!!", flush=True)
                             vulns.append(Vulnerability(
@@ -138,17 +145,23 @@ class DomXssTester(BaseTester):
         return vulns
 
     def _check_alert(self, driver, url):
-        """Mở URL và cố gắng ép Payload phát nổ"""
+        """Mở URL và phục kích Payload phát nổ"""
         try:
-            # [QUAN TRỌNG] Ép trình duyệt mở trang trắng trước để xóa cache SPA Router
+            # Ép trình duyệt mở trang trắng trước để xóa DOM cũ
             driver.get("about:blank")
-            # Sau đó mới mở URL có chứa payload
             driver.get(url)
 
-            # Chờ Angular render DOM hoàn chỉnh
-            time.sleep(3)
+            # [NÂNG CẤP] Phục kích Alert bằng WebDriverWait thay vì sleep cứng
+            try:
+                # Chờ tối đa 3 giây xem có alert nào nổ ngay khi load trang không
+                WebDriverWait(driver, 3).until(EC.alert_is_present())
+                alert = driver.switch_to.alert
+                alert.accept()
+                return True
+            except TimeoutException:
+                pass  # Chuyển sang kích hoạt bằng tương tác
 
-            # Bơm JS để Fuzz Event (ép các thẻ kích hoạt onmouseover, onfocus...)
+            # Nếu Payload cần tương tác mới nổ (onmouseover, onfocus...)
             try:
                 trigger_script = """
                 var evts = ['mouseover', 'focus', 'click'];
@@ -160,18 +173,19 @@ class DomXssTester(BaseTester):
                 }
                 """
                 driver.execute_script(trigger_script)
+
+                # Chờ thêm 1 giây xem sau khi tương tác có nổ alert không
+                WebDriverWait(driver, 1).until(EC.alert_is_present())
+                alert = driver.switch_to.alert
+                alert.accept()
+                return True
             except:
                 pass
 
-                # Kiểm tra xem có popup Alert bật lên không
-            alert = driver.switch_to.alert
-            alert.accept()
-            return True
-
-        except (NoAlertPresentException, TimeoutException):
-            return False
         except UnexpectedAlertPresentException:
-            # Lỗi này văng ra tức là Alert CÓ BẬT LÊN nhưng code Selenium bị gián đoạn vì nó.
+            # Nếu alert nổ quá nhanh làm sập Selenium -> Xác nhận XSS
             return True
         except Exception:
-            return False
+            pass
+
+        return False

