@@ -117,13 +117,65 @@ def run_scan_task(scan_id: int):
         is_windows = False
 
         try:
+            scraped_urls = set()
+            scraped_forms = []
+            crawl_depth = 0 if scan.scan_mode == 'single' else 2
+
+            if crawl_depth > 0:
+                print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
+                with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
+                    out_file = tmp_file.name
+
+                cmd = ['scrapy', 'runspider', 'integrations/scrapy_spider.py', '-a', f'target={scan.target_url}', '-a',
+                       f'depth_limit={crawl_depth}']
+                if scan.auth_cookies: cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
+                cmd.extend(['-o', out_file])
+                subprocess.run(cmd, capture_output=True)
+
+                if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
+                    with open(out_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for item in data:
+                            if item.get('type') == 'url':
+                                scraped_urls.add(item['url'])
+                            elif item.get('type') == 'form':
+                                scraped_forms.append(item)
+                if os.path.exists(out_file): os.remove(out_file)
+            else:
+                scraped_urls.add(scan.target_url)
+
+            print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
+            pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
+
+            # --- [CẬP NHẬT] Hứng cả hidden_apis và mutated_urls ---
+            hidden_apis, mutated_urls = pw_crawler.crawl()
+            if hidden_apis:
+                scraped_forms.extend(hidden_apis)
+                for api in hidden_apis:
+                    scraped_urls.add(api['url'])
+
+            if mutated_urls:
+                for m_url in mutated_urls:
+                    scraped_urls.add(m_url)
+
+            swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
+            if swagger_forms:
+                scraped_forms.extend(swagger_forms)
+                print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
+                for sf in swagger_forms:
+                    scraped_urls.add(sf['url'])
+
+            scraped_urls.add(scan.target_url)
+            site_tree = build_site_tree(list(scraped_urls))
+            scan.site_tree = json.dumps(site_tree)
+            scan.discovered_forms = json.dumps(scraped_forms)
+            db.session.commit()
+            print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
+                  flush=True)
+
+            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
             parsed_url = urlparse(scan.target_url)
             domain = parsed_url.hostname
-
-            # ==========================================
-            # --- PHASE 1: RECONNAISSANCE ---
-            # ==========================================
-            print(f"[Scan ID: {scan_id}] Starting reconnaissance phase...", flush=True)
 
             waf_result = run_wafw00f(scan.target_url)
             if waf_result:
@@ -218,74 +270,12 @@ def run_scan_task(scan_id: int):
                 db.session.commit()
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
-            # ==========================================
-            # --- PHASE 2: CRAWLING & SITE TREE ---
-            # ==========================================
-            scraped_urls = set()
-            scraped_forms = []
-            crawl_depth = 0 if scan.scan_mode == 'single' else 2
-
-            if crawl_depth > 0:
-                print(f"[Scan ID: {scan_id}] Running Scrapy Spider (Depth: {crawl_depth})...", flush=True)
-                with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_file:
-                    out_file = tmp_file.name
-
-                cmd = ['scrapy', 'runspider', 'integrations/scrapy_spider.py', '-a', f'target={scan.target_url}', '-a',
-                       f'depth_limit={crawl_depth}']
-                if scan.auth_cookies: cmd.extend(['-a', f'auth_cookies={scan.auth_cookies}'])
-                cmd.extend(['-o', out_file])
-                subprocess.run(cmd, capture_output=True)
-
-                if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
-                    with open(out_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        for item in data:
-                            if item.get('type') == 'url':
-                                scraped_urls.add(item['url'])
-                            elif item.get('type') == 'form':
-                                scraped_forms.append(item)
-                if os.path.exists(out_file): os.remove(out_file)
-            else:
-                scraped_urls.add(scan.target_url)
-
-            print(f"[Scan ID: {scan_id}] Running Playwright Engine...", flush=True)
-            pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
-            hidden_apis, mutated_urls = pw_crawler.crawl()
-
-            if hidden_apis:
-                scraped_forms.extend(hidden_apis)
-                for api in hidden_apis:
-                    scraped_urls.add(api['url'])
-
-            if mutated_urls:
-                for m_url in mutated_urls:
-                    scraped_urls.add(m_url)
-
-            swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
-            if swagger_forms:
-                scraped_forms.extend(swagger_forms)
-                print(f"  [API Discovery] Auto-generated {len(swagger_forms)} forms from OpenAPI spec.", flush=True)
-                for sf in swagger_forms:
-                    scraped_urls.add(sf['url'])
-
-            scraped_urls.add(scan.target_url)
-
-            site_tree = build_site_tree(list(scraped_urls))
-            scan.site_tree = json.dumps(site_tree)
-            scan.discovered_forms = json.dumps(scraped_forms)
-            db.session.commit()
-            print(f"  [Discovery Summary] Total URLs: {len(scraped_urls)} | Total Forms/APIs: {len(scraped_forms)}",
-                  flush=True)
-
-            # ==========================================
-            # --- PHASE 3: NUCLEI & SQLMAP ---
-            # ==========================================
             print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
             for n_vuln in run_nuclei(scan.target_url):
-                nuclei_temp = VulnerabilityDataClass(type=f"[Nuclei] {n_vuln['type']}",
-                                                     subcategory=n_vuln['details'].get('template_id'),
-                                                     url=n_vuln['url'], severity=n_vuln['severity'],
-                                                     details=n_vuln['details'])
+                nuclei_temp = VulnerabilityDataClass(
+                    type=f"[Nuclei] {n_vuln['type']}", subcategory=n_vuln['details'].get('template_id'),
+                    url=n_vuln['url'], severity=n_vuln['severity'], details=n_vuln['details']
+                )
                 v_hash = _generate_dedup_hash(nuclei_temp)
                 if v_hash not in seen_vuln_hashes:
                     kb_info = get_kb_info(nuclei_temp.type)
@@ -308,15 +298,11 @@ def run_scan_task(scan_id: int):
                                              details=json.dumps(result, indent=2)))
             db.session.commit()
 
-            # ==========================================
-            # --- PHASE 3.5: RETIREJS SCA SCANNING ---
-            # ==========================================
             print(f"[Scan ID: {scan_id}] Running Retire.js (Client-Side Component Analysis)...", flush=True)
             js_urls = [url for url in scraped_urls if url.lower().split('?')[0].endswith('.js')]
             if js_urls:
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
-                    print(f"  [Retire.js] Found outdated library: {r_vuln['component']} {r_vuln['version']}", flush=True)
                     component_name = r_vuln['component']
                     version = r_vuln['version']
                     details = {
@@ -355,9 +341,6 @@ def run_scan_task(scan_id: int):
             else:
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
-            # ==========================================
-            # --- PHASE 4: CORE PYTHON SCANNING ---
-            # ==========================================
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
                   flush=True)
