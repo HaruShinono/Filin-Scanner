@@ -145,27 +145,27 @@ class DomXssTester(BaseTester):
         return vulns
 
     def _check_alert(self, driver, url):
-        """Mở URL và phục kích Payload phát nổ"""
         try:
-            # Ép trình duyệt mở trang trắng trước để xóa DOM cũ
             driver.get("about:blank")
-            driver.get(url)
 
-            # [NÂNG CẤP] Phục kích Alert bằng WebDriverWait thay vì sleep cứng
             try:
-                # Chờ tối đa 3 giây xem có alert nào nổ ngay khi load trang không
-                WebDriverWait(driver, 3).until(EC.alert_is_present())
+                driver.get(url)
+            except UnexpectedAlertPresentException:
+                return True
+
+            try:
+                WebDriverWait(driver, 4).until(EC.alert_is_present())
                 alert = driver.switch_to.alert
                 alert.accept()
                 return True
             except TimeoutException:
-                pass  # Chuyển sang kích hoạt bằng tương tác
-
-            # Nếu Payload cần tương tác mới nổ (onmouseover, onfocus...)
+                pass
+            except UnexpectedAlertPresentException:
+                return True
             try:
                 trigger_script = """
-                var evts = ['mouseover', 'focus', 'click'];
-                var inputs = document.querySelectorAll('input, button, a, div, iframe, svg');
+                var evts = ['mouseover', 'focus', 'click', 'mouseenter', 'mouseleave'];
+                var inputs = document.querySelectorAll('input, button, a, div, iframe, svg, img, details');
                 for(var i=0; i<Math.min(inputs.length, 50); i++) {
                     for(var e=0; e<evts.length; e++) {
                         try { inputs[i].dispatchEvent(new Event(evts[e])); } catch(err) {}
@@ -174,16 +174,19 @@ class DomXssTester(BaseTester):
                 """
                 driver.execute_script(trigger_script)
 
-                # Chờ thêm 1 giây xem sau khi tương tác có nổ alert không
-                WebDriverWait(driver, 1).until(EC.alert_is_present())
+                WebDriverWait(driver, 5).until(EC.alert_is_present())
                 alert = driver.switch_to.alert
                 alert.accept()
                 return True
-            except:
+            except TimeoutException:
+                pass
+            except UnexpectedAlertPresentException:
+                return True
+            except Exception:
                 pass
 
         except UnexpectedAlertPresentException:
-            # Nếu alert nổ quá nhanh làm sập Selenium -> Xác nhận XSS
+            # Bắt chót mọi trường hợp Alert ngoại lệ
             return True
         except Exception:
             pass
