@@ -11,7 +11,6 @@ from weasyprint import HTML
 from factory import db, executor
 from models import Scan, Vulnerability
 from tasks import run_scan_task
-from integrations.ai_remediator import generate_remediation
 
 main_routes = Blueprint('main', __name__)
 

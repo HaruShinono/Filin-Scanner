@@ -18,9 +18,7 @@ from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
-from integrations.nuclei_scanner import run_nuclei
 from integrations.service_auditor import audit_service_version
-from integrations.sqlmap_scanner import run_sqlmap
 from integrations.playwright_crawler import PlaywrightCrawler
 from integrations.waf_bypass_scanner import run_waf_bypass
 from integrations.whatweb_scanner import run_whatweb
@@ -270,34 +268,6 @@ def run_scan_task(scan_id: int):
                                                 details=json.dumps(vuln_info)))
                 db.session.commit()
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
-
-            print(f"[Scan ID: {scan_id}] Running Nuclei scanner...", flush=True)
-            for n_vuln in run_nuclei(scan.target_url):
-                nuclei_temp = VulnerabilityDataClass(
-                    type=f"[Nuclei] {n_vuln['type']}", subcategory=n_vuln['details'].get('template_id'),
-                    url=n_vuln['url'], severity=n_vuln['severity'], details=n_vuln['details']
-                )
-                v_hash = _generate_dedup_hash(nuclei_temp)
-                if v_hash not in seen_vuln_hashes:
-                    kb_info = get_kb_info(nuclei_temp.type)
-                    db.session.add(
-                        Vulnerability(scan_id=scan.id, type=nuclei_temp.type, subcategory=nuclei_temp.subcategory,
-                                      url=nuclei_temp.url, severity=nuclei_temp.severity,
-                                      cvss_score=kb_info.get('cvss_score'), cvss_vector=kb_info.get('cvss_vector'),
-                                      cwe=kb_info.get('cwe', 'N/A'), details=json.dumps(nuclei_temp.details, indent=2)))
-                    seen_vuln_hashes.add(v_hash)
-            db.session.commit()
-
-            print(f"[Scan ID: {scan_id}] Running sqlmap...", flush=True)
-            for result in run_sqlmap(scan.target_url, scan.auth_cookies):
-                title = f"SQL Injection (Verified by sqlmap) - {len(result.get('findings', []))} points"
-                kb_info = get_kb_info("SQL Injection")
-                db.session.add(Vulnerability(scan_id=scan.id, type=title, subcategory="Automated Exploitation",
-                                             url=scan.target_url, severity="Critical",
-                                             cvss_score=kb_info.get('cvss_score'),
-                                             cvss_vector=kb_info.get('cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
-                                             details=json.dumps(result, indent=2)))
-            db.session.commit()
 
             print(f"[Scan ID: {scan_id}] Running Retire.js (Client-Side Component Analysis)...", flush=True)
             js_urls = [url for url in scraped_urls if url.lower().split('?')[0].endswith('.js')]

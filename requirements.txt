@@ -11,10 +11,7 @@ WeasyPrint
 packaging
 requests_cache
 vulners
-nuclei
-sqlmap
 dnsrecon
 wafw00f
-ollama
 cvss
 scrapy
