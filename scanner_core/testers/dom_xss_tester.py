@@ -116,14 +116,12 @@ class DomXssTester(BaseTester):
                         test_frag_params = frag_params.copy()
                         test_frag_params[param] = payload
 
-                        # [FIX LỖI URL ENCODING] Ép khoảng trắng thành %20, không thành dấu +
+                        # blank -> %20
                         new_frag_query = urllib.parse.urlencode(test_frag_params, doseq=True,
                                                                 quote_via=urllib.parse.quote)
 
                         new_fragment = f"{frag_path}?{new_frag_query}"
                         target_url = urllib.parse.urlunparse(parsed._replace(fragment=new_fragment))
-
-                        print(f"  [DEBUG-DOMXSS] Fuzzing SPA Param [{param}] -> {target_url[:100]}...", flush=True)
                         if self._check_alert(driver, target_url):
                             print(f"  [DEBUG-DOMXSS] !!! DOM XSS SUCCESS ON SPA [{param}] !!!", flush=True)
                             vulns.append(Vulnerability(
