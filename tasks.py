@@ -25,7 +25,7 @@ from integrations.whatweb_scanner import run_whatweb
 from integrations.wappalyzer_scanner import run_wappalyzer
 from integrations.retirejs_scanner import run_retirejs
 from utils.swagger_parser import discover_api_from_swagger
-from utils.cvss_calc import parse_and_calculate_cvss
+from utils.cvss_calc import calculate_vulnerability_cvss
 from utils.tree_builder import build_site_tree
 
 try:
@@ -117,6 +117,7 @@ def run_scan_task(scan_id: int):
         try:
             scraped_urls = set()
             scraped_forms = []
+            discovered_components = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
             if crawl_depth > 0:
@@ -211,6 +212,17 @@ def run_scan_task(scan_id: int):
                                  details=json.dumps(wapp_result)))
                 db.session.commit()
 
+                for comp_name, comp_data in wapp_result.items():
+                    versions = comp_data.get('versions', [])
+                    for v in versions:
+                        if v:  # Chỉ lấy khi có version cụ thể
+                            discovered_components.append({
+                                'name': comp_name,
+                                'version': v,
+                                'source': 'Wappalyzer',
+                                'url': scan.target_url
+                            })
+
             if domain and not is_ip_address(domain):
                 dns_results = run_dnsrecon(domain)
                 for record in dns_results:
@@ -232,35 +244,12 @@ def run_scan_task(scan_id: int):
 
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
-                        vulns = audit_service_version(product, version)
-                        if vulns:
-                            max_score = max([v.get('score', 0) for v in vulns]) if vulns else 0
-                            severity = 'Low'
-                            if max_score >= 9.0:
-                                severity = 'Critical'
-                            elif max_score >= 7.0:
-                                severity = 'High'
-                            elif max_score >= 4.0:
-                                severity = 'Medium'
-
-                            temp_vuln = VulnerabilityDataClass(
-                                type='Outdated Service Component', subcategory=f"{product} {version}",
-                                url=f"{scan.target_url} (Port {port_info.get('port')})", severity=severity,
-                                details={'product': product, 'version': version, 'port': port_info.get('port'),
-                                         'cves': vulns}
-                            )
-                            v_hash = _generate_dedup_hash(temp_vuln)
-                            if v_hash not in seen_vuln_hashes:
-                                kb_info = get_kb_info(temp_vuln.type)
-                                db.session.add(Vulnerability(scan_id=scan.id, type=temp_vuln.type,
-                                                             subcategory=temp_vuln.subcategory, url=temp_vuln.url,
-                                                             severity=severity,
-                                                             cvss_score=temp_vuln.cvss_score or kb_info.get(
-                                                                 'cvss_score'),
-                                                             cvss_vector=temp_vuln.cvss_vector or kb_info.get(
-                                                                 'cvss_vector'), cwe=kb_info.get('cwe', 'N/A'),
-                                                             details=json.dumps(temp_vuln.details, indent=2)))
-                                seen_vuln_hashes.add(v_hash)
+                        discovered_components.append({
+                            'name': product,
+                            'version': version,
+                            'source': f"Nmap (Port {port_info.get('port')})",
+                            'url': f"{scan.target_url}:{port_info.get('port')}"
+                        })
 
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     db.session.add(ReconFinding(scan_id=scan.id, tool='nmap-vuln',
@@ -274,43 +263,56 @@ def run_scan_task(scan_id: int):
             if js_urls:
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
-                    component_name = r_vuln['component']
-                    version = r_vuln['version']
-                    details = {
-                        'library': component_name,
-                        'version': version,
-                        'resource_url': r_vuln['url'],
-                        'vulnerabilities_found': []
-                    }
-                    for v in r_vuln['vulnerabilities']:
-                        identifiers = v.get('identifiers', {})
-                        cve = identifiers.get('CVE', [''])[0] if identifiers.get('CVE') else 'N/A'
-                        details['vulnerabilities_found'].append({
-                            'cve': cve,
-                            'summary': identifiers.get('summary', ''),
-                            'severity': v.get('severity', 'Unknown').title()
-                        })
-
-                    temp_vuln = VulnerabilityDataClass(
-                        type='Using Components with Known Vulnerabilities',
-                        subcategory=f"{component_name.title()} {version}",
-                        url=r_vuln['url'],
-                        severity=r_vuln['severity'],
-                        details=details
-                    )
-                    v_hash = _generate_dedup_hash(temp_vuln)
-                    if v_hash not in seen_vuln_hashes:
-                        kb_info = get_kb_info(temp_vuln.type)
-                        db.session.add(Vulnerability(
-                            scan_id=scan.id, type=temp_vuln.type, subcategory=temp_vuln.subcategory,
-                            url=temp_vuln.url, severity=temp_vuln.severity,
-                            cvss_score=kb_info.get('cvss_score'), cvss_vector=kb_info.get('cvss_vector'),
-                            cwe=kb_info.get('cwe', 'N/A'), details=json.dumps(temp_vuln.details, indent=2)
-                        ))
-                        seen_vuln_hashes.add(v_hash)
-                db.session.commit()
+                    # [BƯỚC 4] Bóc tách thư viện JS đưa vào danh sách chờ Audit (bỏ logic tự tính điểm)
+                    discovered_components.append({
+                        'name': r_vuln['component'],
+                        'version': r_vuln['version'],
+                        'source': 'Retire.js',
+                        'url': r_vuln['url']
+                    })
             else:
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
+
+            if discovered_components:
+                print(
+                    f"[Scan ID: {scan_id}] Auditing {len(discovered_components)} discovered components via Vulners API...",
+                    flush=True)
+                audited_keys = set()
+
+                for comp in discovered_components:
+                    comp_key = f"{comp['name'].lower()}:{comp['version']}"
+                    if comp_key in audited_keys:
+                        continue
+                    audited_keys.add(comp_key)
+
+                    vulns = audit_service_version(comp['name'], comp['version'])
+                    if vulns:
+                        # Chọn CVE có điểm CVSS cao nhất
+                        max_vuln = max(vulns, key=lambda x: x.get('score', 0.0))
+                        max_score = max_vuln.get('score', 0.0)
+                        max_vector = max_vuln.get('vector', 'UNKNOWN')
+
+                        # Định dạng bảng Text danh sách CVE y hệt yêu cầu
+                        sorted_vulns = sorted(vulns, key=lambda x: x.get('score', 0.0), reverse=True)
+                        cve_list_text = f"CPE/Component: {comp['name']} ({comp['version']})\n"
+                        cve_list_text += "-" * 70 + "\n"
+                        for v in sorted_vulns:
+                            # Align format: [CVE-ID]   [Score]   [Link]
+                            cve_list_text += f"{v.get('id'):<18} {v.get('score'):<5} {v.get('href')}\n"
+
+                        temp_vuln = VulnerabilityDataClass(
+                            type='Using Components with Known Vulnerabilities',
+                            subcategory=f"{comp['name'].title()} {comp['version']}",
+                            url=comp['url'],
+                            severity='',  # Sẽ được save_vulnerability_callback tự động map theo CVSS v3.1
+                            cvss_score=max_score,
+                            cvss_vector=max_vector,
+                            details={
+                                'Detected Via': comp['source'],
+                                'Vulnerability List': cve_list_text
+                            }
+                        )
+                        save_vulnerability_callback(temp_vuln)
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
@@ -322,13 +324,24 @@ def run_scan_task(scan_id: int):
                     if v_hash in seen_vuln_hashes: return
 
                     kb_info = get_kb_info(vuln.type)
-                    cvss_vector = vuln.cvss_vector or kb_info.get('cvss_vector')
-                    cvss_score, severity = vuln.cvss_score, vuln.severity
 
-                    if cvss_vector:
-                        calculated_score, calc_severity = parse_and_calculate_cvss(cvss_vector)
-                        if calculated_score is not None:
-                            cvss_score, severity = calculated_score, calc_severity
+                    # --- KIỂM TRA NẾU LÀ LỖ HỔNG COMPONENT THÌ LẤY THẲNG ĐIỂM TỪ VULN ĐÃ ĐƯỢC AUDIT ---
+                    if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower():
+                        # Lấy trực tiếp điểm và vector đã gán từ Vulners audit hoặc Retire.js
+                        cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
+                        cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
+
+                        # Quy đổi điểm số này sang nhãn mức độ nguy hiểm CVSS v3.1
+                        from utils.cvss_calc import get_severity
+                        severity = get_severity(cvss_score)
+                    else:
+                        # --- TÍNH ĐIỂM DYNAMIC THEO CVSS v3.1 LOGIC CHO CÁC LỖ HỔNG KHÁC ---
+                        has_auth = bool(scan.auth_cookies)
+                        cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
+                            vuln.type,
+                            getattr(vuln, 'subcategory', None),
+                            has_auth
+                        )
 
                     db.session.add(
                         Vulnerability(scan_id=scan.id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
