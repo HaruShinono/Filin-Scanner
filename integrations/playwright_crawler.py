@@ -113,9 +113,6 @@ class PlaywrightCrawler:
                         f"{self.base_url}/#/basket"
                     ]
 
-                # Fallback: Hardcode common SPA param routes to ensure testing
-                self.mutated_urls.add(f"{self.base_url}/#/search?q=apple")
-
                 for url in test_routes:
                     try:
                         page.goto(url, wait_until="domcontentloaded", timeout=10000)
