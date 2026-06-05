@@ -393,48 +393,6 @@
         </div>
     </div>
 
-    <div id="ai-summary-section" class="d-none mb-5 mt-5">
-        <div class="card border-0 shadow-lg" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white;">
-            <div class="card-header bg-transparent border-0 pt-4 px-4">
-                <div class="d-flex align-items-center">
-                    <i class="bi bi-robot fs-1 me-3 text-info"></i>
-                    <div>
-                        <h2 class="mb-0 fw-bold">AI Security Consultant</h2>
-                        <p class="text-info-emphasis mb-0">Automated Executive Report & Strategy</p>
-                    </div>
-                    <div class="ms-auto text-end">
-                        <span class="d-block text-uppercase small opacity-75">Overall Risk Score</span>
-                        <span id="ai-risk-score" class="display-4 fw-bold text-danger">--</span><span class="fs-5">/100</span>
-                    </div>
-                </div>
-            </div>
-            <div class="card-body p-4">
-
-                <div class="mb-4">
-                    <h5 class="text-uppercase text-secondary small fw-bold ls-1">Executive Summary</h5>
-                    <p id="ai-exec-summary" class="lead" style="font-weight: 300;"></p>
-                </div>
-
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
-                            <h5 class="text-warning mb-3"><i class="bi bi-list-check me-2"></i>Immediate Actions</h5>
-                            <ul id="ai-priorities" class="list-unstyled mb-0">
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 rounded h-100" style="background: rgba(255,255,255,0.05);">
-                            <h5 class="text-success mb-3"><i class="bi bi-shield-check me-2"></i>Strategic Advice</h5>
-                            <p id="ai-strategy" class="small mb-0 opacity-75"></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="mb-5"></div>
 </div>
 {% endblock %}
@@ -490,48 +448,6 @@
         } catch (error) {
             alert('Error connecting to server.');
             btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Retry Scan';
-            btn.disabled = false;
-        }
-    }
-
-    async function triggerAiRemediation(groupHash, firstVulnId) {
-        const btn = document.getElementById(`btn-ai-${groupHash}`);
-        const contentArea = document.getElementById(`ai-content-${groupHash}`);
-
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> AI is analyzing...';
-        btn.disabled = true;
-
-        try {
-            const response = await fetch(`/api/remediate/${firstVulnId}`, { method: 'POST' });
-            const result = await response.json();
-
-            if (response.ok && result.status === 'success') {
-                const data = result.data;
-                const safeFixedCode = escapeHtml(data.fixed_code);
-                const safeExplanation = escapeHtml(data.explanation);
-
-                contentArea.innerHTML = `
-                    <div class="p-3 bg-body-tertiary rounded border border-success text-start">
-                        <h6 class="fw-bold text-success"><i class="bi bi-check-circle me-2"></i>Analysis Complete</h6>
-                        <p class="text-body-secondary mb-3" style="font-size: 0.95em;">${safeExplanation}</p>
-
-                        <h6 class="fw-bold"><i class="bi bi-code-slash me-2"></i>Suggested Fix</h6>
-                        <div class="terminal-window">
-                            <div class="terminal-header">
-                                <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-                                <span class="title">secure_code.patch</span>
-                            </div>
-                            <pre class="terminal-body"><code>${safeFixedCode}</code></pre>
-                        </div>
-                    </div>
-                `;
-            } else {
-                btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Failed. Try Again.';
-                btn.classList.replace('btn-outline-primary', 'btn-outline-danger');
-                btn.disabled = false;
-            }
-        } catch (error) {
-            btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error. Try Again.';
             btn.disabled = false;
         }
     }
@@ -652,7 +568,6 @@
             detailsHtml += '<tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
-                    if (key === 'ai_suggestion') continue;
                     let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
                     displayValue = escapeHtml(displayValue);
                     detailsHtml += `
@@ -700,20 +615,6 @@
                     cvssBadge = `<span class="badge bg-dark border border-secondary text-light me-2" title="${vuln.cvss_vector || ''}">CVSS: ${vuln.cvss_score}</span>`;
                 }
 
-                                                <ul class="nav nav-tabs" role="tablist">
-                                    <li class="nav-item" role="presentation">
-                                        <button class="nav-link active" id="details-tab-${groupHash}" data-bs-toggle="tab" data-bs-target="#details-pane-${groupHash}" type="button" role="tab">Affected Instances</button>
-                                    </li>
-                                </ul>
-
-                                <div class="tab-content pt-3">
-                                    <div class="tab-pane fade show active" id="details-pane-${groupHash}" role="tabpanel">
-                                        <div class="accordion accordion-flush child-accordion border rounded" id="child-accordion-${groupHash}" style="background-color: #11111b; border: 1px solid #313244;">
-                                            ${childHtml}
-                                        </div>
-                                    </div>
-                                </div>
-
                 const cvssVectorHtml = renderCvssAndCwe(vuln.cvss_vector, vuln.cwe);
 
                 const parentHtml = `
@@ -736,7 +637,6 @@
                                     <li class="nav-item" role="presentation">
                                         <button class="nav-link active" id="details-tab-${groupHash}" data-bs-toggle="tab" data-bs-target="#details-pane-${groupHash}" type="button" role="tab">Affected Instances</button>
                                     </li>
-                                    ${aiTabNav}
                                 </ul>
 
                                 <div class="tab-content pt-3">
@@ -745,7 +645,6 @@
                                             ${childHtml}
                                         </div>
                                     </div>
-                                    ${aiTabContent}
                                 </div>
                             </div>
                         </div>
