@@ -4,13 +4,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Đăng ký API Key tại https://vulners.com/
 VULNERS_API_KEY = ""
 
 def get_vulners_api():
     if VULNERS_API_KEY:
-        return vulners.Vulners(api_key=VULNERS_API_KEY)
-    return vulners.Vulners()
+        return vulners.VulnersApi(api_key=VULNERS_API_KEY)
+    return vulners.VulnersApi()
 
 def audit_service_version(service_name: str, version: str) -> list:
     if not service_name or not version:
@@ -19,7 +18,6 @@ def audit_service_version(service_name: str, version: str) -> list:
     try:
         v_api = get_vulners_api()
         query = f'"{service_name}" "{version}" type:cve'
-        # Quét lấy tối đa 10 CVE hàng đầu liên quan đến component
         results = v_api.search(query, limit=10)
 
         findings = []
