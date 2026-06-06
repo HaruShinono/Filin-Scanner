@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Đăng ký API Key tại https://vulners.com/
 VULNERS_API_KEY = ""
 
 def get_vulners_api():
@@ -18,7 +19,8 @@ def audit_service_version(service_name: str, version: str) -> list:
     try:
         v_api = get_vulners_api()
         query = f'"{service_name}" "{version}" type:cve'
-        results = v_api.search(query, limit=10)
+        # Thay thế search bằng find_all
+        results = v_api.find_all(query, limit=10)
 
         findings = []
         for res in results:
@@ -49,7 +51,8 @@ def audit_service_version(service_name: str, version: str) -> list:
 def find_exploits_for_cve(api_instance, cve_id: str) -> list:
     try:
         query = f"{cve_id} (bulletinFamily:exploit OR type:github)"
-        results = api_instance.search(query, limit=3)
+        # Thay thế search bằng find_all
+        results = api_instance.find_all(query, limit=3)
 
         exploits = []
         for res in results:
@@ -67,7 +70,8 @@ def audit_cms_component(component_name: str, version: str, cms_type="wordpress")
     try:
         v_api = get_vulners_api()
         query = f'"{cms_type}" plugin "{component_name}" "{version}" type:cve'
-        results = v_api.search(query, limit=5)
+        # Thay thế search bằng find_all
+        results = v_api.find_all(query, limit=5)
 
         findings = []
         for res in results:

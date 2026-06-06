@@ -175,9 +175,9 @@ def run_scan_task(scan_id: int):
                                 scraped_urls.add(item['url'])
                             elif item.get('type') == 'form':
                                 scraped_forms.append(item)
-                if os.path.exists(out_file): os.remove(out_file)
-            else:
-                scraped_urls.add(scan.target_url)
+                    if os.path.exists(out_file): os.remove(out_file)
+                else:
+                    scraped_urls.add(scan.target_url)
 
             print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
             from integrations.playwright_crawler import PlaywrightCrawler
@@ -308,7 +308,8 @@ def run_scan_task(scan_id: int):
                             unique_cves = list(set(cve_matches))
                             v_api = get_vulners_api()
                             for cve_id in unique_cves[:2]:
-                                query_res = v_api.search(cve_id, limit=1)
+                                # Thay thế v_api.search bằng v_api.find_all
+                                query_res = v_api.find_all(cve_id, limit=1)
                                 if query_res:
                                     res = query_res[0]
                                     cvss_data = res.get('cvss3', res.get('cvss', {}))
