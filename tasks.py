@@ -263,13 +263,45 @@ def run_scan_task(scan_id: int):
             if js_urls:
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
-                    # [BƯỚC 4] Bóc tách thư viện JS đưa vào danh sách chờ Audit (bỏ logic tự tính điểm)
-                    discovered_components.append({
-                        'name': r_vuln['component'],
-                        'version': r_vuln['version'],
-                        'source': 'Retire.js',
-                        'url': r_vuln['url']
-                    })
+                    # Tự xử lý và đánh giá lỗi dựa trên DB của Retire.js
+                    cve_list_text = f"CPE/Component: {r_vuln['component']} ({r_vuln['version']})\n"
+                    cve_list_text += "-" * 70 + "\n"
+
+                    max_score = 0.0
+
+                    for v in r_vuln['vulnerabilities']:
+                        identifiers = v.get('identifiers', {})
+                        cve = identifiers.get('CVE', [''])[0] if identifiers.get('CVE') else 'N/A'
+                        summary = identifiers.get('summary', 'No summary provided')
+                        sev = v.get('severity', 'low').lower()
+
+                        # Ánh xạ severity của Retire.js sang điểm CVSS v3.1 giả định (vì Retire.js chỉ trả về text)
+                        score = 0.0
+                        if sev == 'critical':
+                            score = 9.8
+                        elif sev == 'high':
+                            score = 7.5
+                        elif sev == 'medium':
+                            score = 5.5
+                        elif sev == 'low':
+                            score = 3.0
+
+                        max_score = max(max_score, score)
+                        cve_list_text += f"{cve:<18} {score:<5} {summary[:60]}...\n"
+
+                    temp_vuln = VulnerabilityDataClass(
+                        type='Using Components with Known Vulnerabilities',
+                        subcategory=f"{r_vuln['component'].title()} {r_vuln['version']} (JS)",
+                        url=r_vuln['url'],
+                        severity='',
+                        cvss_score=max_score,
+                        cvss_vector=None,
+                        details={
+                            'Detected Via': 'Retire.js',
+                            'Vulnerability List': cve_list_text
+                        }
+                    )
+                    save_vulnerability_callback(temp_vuln)
             else:
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 

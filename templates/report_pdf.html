@@ -70,19 +70,7 @@
     <!-- EXECUTIVE SUMMARY -->
     <div class="summary-box">
         <h2>1. Executive Summary</h2>
-        {% set ai_summary = scan.get_ai_analysis() %}
-        {% if ai_summary %}
-            <h3>Overall Security Posture</h3>
-            <p>{{ ai_summary.executive_summary }}</p>
-            <h3>Top Priorities</h3>
-            <ul>
-            {% for item in ai_summary.top_priorities %}
-                <li>{{ item }}</li>
-            {% endfor %}
-            </ul>
-        {% else %}
-            <p>An automated analysis of the scan results indicates that the target application has several security weaknesses that require attention. A detailed breakdown is provided in the following sections.</p>
-        {% endif %}
+        <p>An automated analysis of the scan results indicates that the target application has been evaluated for security weaknesses. The assessment integrates a dynamic CVSS v3.1 scoring engine and thorough Component Analysis (OWASP A06). A detailed breakdown of the vulnerabilities categorized by severity is provided in the following sections. Immediate remediation is recommended for any Critical and High findings.</p>
     </div>
 
     <!-- FINDINGS SUMMARY -->
@@ -119,32 +107,26 @@
     {% for vuln in vulnerabilities %}
     <div class="vuln-item">
         <div class="vuln-header {{ vuln.severity|lower }}">
-            <h3 style="color: white; margin: 0;">{{ vuln.kb_info.title }}</h3>
+            <h3 style="color: white; margin: 0;">{{ vuln.type }} {% if vuln.subcategory %}- {{ vuln.subcategory }}{% endif %}</h3>
             <span class="severity-badge {{ vuln.severity|lower }}">{{ vuln.severity }}</span>
         </div>
         <div class="vuln-body">
             <table>
-                <tr><th width="20%">OWASP Top 10</th><td>{{ vuln.kb_info.owasp }}</td></tr>
+                <tr><th width="25%">CVSS v3.1 Score</th><td><strong>{{ vuln.cvss_score if vuln.cvss_score else 'N/A' }}</strong></td></tr>
+                <tr><th>CVSS Vector</th><td><code>{{ vuln.cvss_vector if vuln.cvss_vector else 'N/A' }}</code></td></tr>
+                <tr><th>OWASP Top 10</th><td>{{ vuln.kb_info.owasp }}</td></tr>
                 <tr><th>CWE</th><td>{{ vuln.kb_info.cwe }}</td></tr>
                 <tr><th>Location</th><td><code>{{ vuln.url }}</code></td></tr>
             </table>
+
+            <h3>Technical Details & Evidence</h3>
+            <pre>{{ vuln.get_details_as_dict() | tojson(indent=2) }}</pre>
 
             <h3>Description</h3>
             <p>{{ vuln.kb_info.description }}</p>
 
             <h3>Impact</h3>
             <p>{{ vuln.kb_info.impact }}</p>
-
-            <h3>Technical Details</h3>
-            <pre>{{ vuln.get_details_as_dict() | tojson(indent=2) }}</pre>
-
-            {% set ai_sugg = vuln.get_details_as_dict().ai_suggestion %}
-            {% if ai_sugg %}
-            <h3>AI-Powered Remediation</h3>
-            <p><strong>Explanation:</strong> {{ ai_sugg.explanation }}</p>
-            <p><strong>Suggested Code Fix (Example):</strong></p>
-            <pre>{{ ai_sugg.fixed_code }}</pre>
-            {% endif %}
         </div>
     </div>
     {% endfor %}
