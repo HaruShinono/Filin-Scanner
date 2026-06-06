@@ -252,10 +252,52 @@ def run_scan_task(scan_id: int):
                         })
 
                 for vuln_info in nmap_data.get('vulnerabilities', []):
-                    db.session.add(ReconFinding(scan_id=scan.id, tool='nmap-vuln',
-                                                finding_type=f"NSE: {vuln_info.get('script_id')}",
-                                                details=json.dumps(vuln_info)))
-                db.session.commit()
+                    script_id = vuln_info.get('script_id', 'NSE Script')
+                    output_text = vuln_info.get('output', '')
+
+                    # Trích xuất tìm mã CVE (ví dụ: CVE-2020-1938) có trong log output của Nmap
+                    cve_matches = re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)
+
+                    max_score = 7.5  # Mặc định High nếu nmap quét ra lỗi nhưng không tìm thấy mã CVE cụ thể
+                    max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"  # Mặc định
+
+                    cve_list_text = f"CPE/Service: Nmap NSE Script ({script_id})\n"
+                    cve_list_text += "-" * 70 + "\n"
+                    cve_list_text += f"Port/Protocol: {vuln_info.get('port')}/{vuln_info.get('protocol')}\n"
+                    cve_list_text += f"Nmap Script Output:\n{output_text}\n"
+
+                    # Nếu tìm thấy CVE trong logs, tra cứu Vulners lấy điểm & vector chính xác
+                    if cve_matches:
+                        try:
+                            unique_cves = list(set(cve_matches))
+                            v_api = get_vulners_api()
+                            # Tra cứu tối đa 2 CVE đầu để tối ưu hiệu năng tránh nghẽn API
+                            for cve_id in unique_cves[:2]:
+                                query_res = v_api.search(cve_id, limit=1)
+                                if query_res:
+                                    res = query_res[0]
+                                    cvss_data = res.get('cvss3', res.get('cvss', {}))
+                                    score = float(cvss_data.get('score', cvss_data.get('value', 7.5)))
+                                    vector = cvss_data.get('vector', max_vector)
+                                    if score > max_score:
+                                        max_score = score
+                                        max_vector = vector
+                        except Exception as e:
+                            print(f"Error fetching Nmap CVE detail from Vulners: {e}")
+
+                    temp_vuln = VulnerabilityDataClass(
+                        type='Vulnerable and Outdated Service Component',
+                        subcategory=f"NSE: {script_id}",
+                        url=f"{scan.target_url} (Port {vuln_info.get('port')})",
+                        severity='',  # Tự động tính nhãn thông qua get_severity
+                        cvss_score=max_score,
+                        cvss_vector=max_vector,
+                        details={
+                            'Detected Via': 'Nmap Vulnerability Detection Script (NSE)',
+                            'Vulnerability Details': cve_list_text
+                        }
+                    )
+                    save_vulnerability_callback(temp_vuln)
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
             print(f"[Scan ID: {scan_id}] Running Retire.js (Client-Side Component Analysis)...", flush=True)

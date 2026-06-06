@@ -582,11 +582,17 @@
             }
             detailsHtml += '</tbody></table>';
 
+            let childCvssBadge = '';
+            if (vuln.cvss_score) {
+                childCvssBadge = `<span class="badge bg-dark border border-secondary text-light me-2" style="font-size: 0.75em;">CVSS: ${vuln.cvss_score}</span>`;
+            }
+
             const childHtml = `
                 <div class="accordion-item border-0 border-bottom" style="border-color: #313244 !important; background-color: #1e1e2e !important;">
                     <h2 class="accordion-header" id="heading-child-${vuln.id}">
                         <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-child-${vuln.id}" style="padding: 0.6rem 1.2rem; font-size: 0.92rem; background-color: #181825; color: #cdd6f4; border-bottom: 1px solid #313244;">
                             <span class="badge ${getSeverityBadgeClass(vuln.severity)} me-2" style="font-size: 0.75em;">${vuln.severity}</span>
+                            ${childCvssBadge}
                             <span class="fw-bold me-2 text-truncate" style="max-width: 300px;">${escapeHtml(vuln.subcategory || 'Issue Instance')}</span>
                             <span class="text-muted text-truncate small">${escapeHtml(vuln.url)}</span>
                         </button>
@@ -594,6 +600,7 @@
                     <div id="collapse-child-${vuln.id}" class="accordion-collapse collapse" data-bs-parent="#child-accordion-${groupHash}">
                         <div class="accordion-body p-3" style="padding: 1.2rem; background-color: #11111b; color: #cdd6f4;">
                             <p class="mb-2"><strong>Target URL:</strong> <a href="${vuln.url}" target="_blank">${escapeHtml(vuln.url)}</a></p>
+                            ${vuln.cvss_vector ? `<p class="mb-2"><strong>CVSS Vector:</strong> <code style="color: #f5c2e7;">${vuln.cvss_vector}</code></p>` : ''}
                             ${detailsHtml}
                         </div>
                     </div>
