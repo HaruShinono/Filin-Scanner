@@ -19,7 +19,7 @@ from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
-from integrations.service_auditor import audit_service_version, get_vulners_api
+from integrations.vulners_scanner import audit_component, lookup_cve  # <--- IMPORT MODULE MỚI
 from integrations.waf_bypass_scanner import run_waf_bypass
 from integrations.whatweb_scanner import run_whatweb
 from integrations.wappalyzer_scanner import run_wappalyzer
@@ -114,11 +114,8 @@ def run_scan_task(scan_id: int):
         seen_vuln_hashes = set()
         waf_detected = False
         is_windows = False
-        discovered_components = []  # Lưu trữ các linh kiện chờ kiểm tra qua Vulners (OWASP A06)
+        discovered_components = []
 
-        # ---------------------------------------------------------------------
-        # ĐỊNH NGHĨA CALLBACK SỚM ĐỂ TOÀN BỘ CÁC MODULE PHÍA DƯỚI CÓ THỂ SỬ DỤNG
-        # ---------------------------------------------------------------------
         def save_vulnerability_callback(vuln: VulnerabilityDataClass):
             with app.app_context():
                 current_scan = db.session.get(Scan, scan_id)
@@ -127,15 +124,13 @@ def run_scan_task(scan_id: int):
 
                 kb_info = get_kb_info(vuln.type)
 
-                # Kiểm tra nếu là lỗ hổng Component -> Giữ điểm CVSS gốc từ Vulners/RetireJS
+                # Logic CVSS
                 if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
                     cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
                     cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
-
                     from utils.cvss_calc import get_severity
                     severity = get_severity(cvss_score)
                 else:
-                    # Chấm CVSS v3.1 Động cho các lỗ hổng ứng dụng thông thường
                     has_auth = bool(current_scan.auth_cookies if current_scan else False)
                     cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
                         vuln.type,
@@ -218,8 +213,6 @@ def run_scan_task(scan_id: int):
                 db.session.add(ReconFinding(scan_id=scan.id, tool='wafw00f', finding_type='WAF Detected',
                                             details=json.dumps(waf_result)))
                 db.session.commit()
-                print(f"  [Recon] WAF Detected: {waf_result.get('firewall', 'Unknown')}. Enabling evasive measures.",
-                      flush=True)
 
                 waf_bypass_results = run_waf_bypass(scan.target_url)
                 for result in waf_bypass_results:
@@ -234,11 +227,9 @@ def run_scan_task(scan_id: int):
                     ReconFinding(scan_id=scan.id, tool='whatweb', finding_type='Technology Fingerprint (WhatWeb)',
                                  details=json.dumps(whatweb_result)))
                 db.session.commit()
-
                 ww_str = json.dumps(whatweb_result).lower()
                 if 'windows' in ww_str or 'iis' in ww_str or 'microsoft' in ww_str:
                     is_windows = True
-                    print("  [Recon] Target OS detected as Windows via WhatWeb.", flush=True)
 
             wapp_result = run_wappalyzer(scan.target_url)
             if wapp_result:
@@ -246,8 +237,6 @@ def run_scan_task(scan_id: int):
                     ReconFinding(scan_id=scan.id, tool='wappalyzer', finding_type='Technology Fingerprint (Wappalyzer)',
                                  details=json.dumps(wapp_result)))
                 db.session.commit()
-
-                # Gom nhóm linh kiện từ Wappalyzer
                 for comp_name, comp_data in wapp_result.items():
                     versions = comp_data.get('versions', [])
                     for v in versions:
@@ -276,11 +265,9 @@ def run_scan_task(scan_id: int):
                     nmap_str = json.dumps(port_info).lower()
                     if 'windows' in nmap_str or 'microsoft' in nmap_str:
                         is_windows = True
-                        print("  [Recon] Target OS detected as Windows via Nmap.", flush=True)
 
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
-                        # Gom nhóm dịch vụ từ Nmap
                         discovered_components.append({
                             'name': product,
                             'version': version,
@@ -288,7 +275,7 @@ def run_scan_task(scan_id: int):
                             'url': f"{scan.target_url}:{port_info.get('port')}"
                         })
 
-                # Chuyển đổi Nmap NSE Vulnerabilities thành lỗ hổng ứng dụng chính thức
+                # [BƯỚC 3.2] NMAP TỰ LẤY ĐIỂM CVSS BẰNG LOOKUP_CVE
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     script_id = vuln_info.get('script_id', 'NSE Script')
                     output_text = vuln_info.get('output', '')
@@ -304,22 +291,12 @@ def run_scan_task(scan_id: int):
                     cve_list_text += f"Nmap Script Output:\n{output_text}\n"
 
                     if cve_matches:
-                        try:
-                            unique_cves = list(set(cve_matches))
-                            v_api = get_vulners_api()
-                            for cve_id in unique_cves[:2]:
-                                # Thay thế v_api.search bằng v_api.find_all
-                                query_res = v_api.find_all(cve_id, limit=1)
-                                if query_res:
-                                    res = query_res[0]
-                                    cvss_data = res.get('cvss3', res.get('cvss', {}))
-                                    score = float(cvss_data.get('score', cvss_data.get('value', 7.5)))
-                                    vector = cvss_data.get('vector', max_vector)
-                                    if score > max_score:
-                                        max_score = score
-                                        max_vector = vector
-                        except Exception as e:
-                            print(f"Error fetching Nmap CVE detail from Vulners: {e}")
+                        unique_cves = list(set(cve_matches))
+                        for cve_id in unique_cves[:2]:
+                            cve_info = lookup_cve(cve_id)  # Dùng hàm lookup trực tiếp của Vulners Scanner
+                            if cve_info['score'] > max_score:
+                                max_score = cve_info['score']
+                                max_vector = cve_info['vector']
 
                     temp_vuln = VulnerabilityDataClass(
                         type='Vulnerable and Outdated Service Component',
@@ -380,16 +357,13 @@ def run_scan_task(scan_id: int):
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
-            else:
-                print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
             # =====================================================================
-            # [BƯỚC 4] HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS)
+            # [BƯỚC 4] HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS MỚI)
             # =====================================================================
             if discovered_components:
-                print(
-                    f"[Scan ID: {scan_id}] Auditing {len(discovered_components)} discovered components via Vulners API...",
-                    flush=True)
+                print(f"[Scan ID: {scan_id}] Auditing {len(discovered_components)} components via Vulners API...",
+                      flush=True)
                 audited_keys = set()
 
                 for comp in discovered_components:
@@ -398,17 +372,20 @@ def run_scan_task(scan_id: int):
                         continue
                     audited_keys.add(comp_key)
 
-                    vulns = audit_service_version(comp['name'], comp['version'])
+                    # Dùng module vulners_scanner mới để lấy danh sách CVE
+                    vulns = audit_component(comp['name'], comp['version'])
                     if vulns:
-                        max_vuln = max(vulns, key=lambda x: x.get('score', 0.0))
-                        max_score = max_vuln.get('score', 0.0)
-                        max_vector = max_vuln.get('vector', 'UNKNOWN')
+                        # Điểm đã được module sort từ cao xuống thấp
+                        max_vuln = vulns[0]
+                        max_score = max_vuln['score']
+                        max_vector = max_vuln['vector']
 
-                        sorted_vulns = sorted(vulns, key=lambda x: x.get('score', 0.0), reverse=True)
                         cve_list_text = f"CPE/Component: {comp['name']} ({comp['version']})\n"
-                        cve_list_text += "-" * 70 + "\n"
-                        for v in sorted_vulns:
-                            cve_list_text += f"{v.get('id'):<18} {v.get('score'):<5} {v.get('href')}\n"
+                        cve_list_text += "-" * 95 + "\n"
+
+                        # Format chuẩn form như tabulate trên UI
+                        for v in vulns[:15]:
+                            cve_list_text += f"{v['id']:<18} | {v['score']:<4} | {v['title']:<55} | {v['href']}\n"
 
                         temp_vuln = VulnerabilityDataClass(
                             type='Vulnerable and Outdated Service Component',
@@ -426,9 +403,6 @@ def run_scan_task(scan_id: int):
             # =====================================================================
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
-            print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
-                  flush=True)
-
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
                 pre_crawled_urls=scraped_urls, discovered_forms=scraped_forms,
