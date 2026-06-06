@@ -101,7 +101,7 @@ info_leak:
     - { type: "Email Address", regex: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', severity: "Low", subcategory: "Email Address" }
     - { type: "JWT Token", regex: '\beyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*\b', severity: "High", subcategory: "Exposed Credentials" }
     - { type: "AWS Access Key ID", regex: '\bAKIA[0-9A-Z]{16}\b', severity: "Critical", subcategory: "Cloud Credentials" }
-    - { type: "AWS Secret Key", regex: '\b[A-Za-z0-9/+=]{40}\b', min_entropy: 3.5, severity: "Critical", subcategory: "Cloud Credentials" }
+    - { type: "AWS Secret Key", regex: '(?i)(?:aws.?secret.?(?:access.?)?key|SecretAccessKey|secret_key)["\s:=]+([A-Za-z0-9/+=]{40})\b', min_entropy: 3.5, severity: "Critical", subcategory: "Cloud Credentials" }
     - { type: "Google API Key", regex: '\bAIza[0-9A-Za-z\-_]{35}\b', severity: "High", subcategory: "Exposed Credentials" }
     - { type: "GitHub Token", regex: '\bghp_[A-Za-z0-9]{36}\b', severity: "High", subcategory: "Exposed Credentials" }
     - { type: "Stripe API Key", regex: '\b(sk|pk)_(test|live)_[0-9a-zA-Z]{24}\b', severity: "Critical", subcategory: "Payment Credentials" }
