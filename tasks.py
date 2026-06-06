@@ -1,3 +1,4 @@
+# tasks.py
 import json
 import traceback
 import hashlib
@@ -18,8 +19,7 @@ from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
-from integrations.service_auditor import audit_service_version
-from integrations.playwright_crawler import PlaywrightCrawler
+from integrations.service_auditor import audit_service_version, get_vulners_api
 from integrations.waf_bypass_scanner import run_waf_bypass
 from integrations.whatweb_scanner import run_whatweb
 from integrations.wappalyzer_scanner import run_wappalyzer
@@ -45,8 +45,9 @@ def get_kb_info(vuln_type):
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
                          'Security Logging and Monitoring Failure', 'Outdated Service Component',
-                         'Using Components with Known Vulnerabilities', 'Software and Data Integrity Failure',
-                         'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']
+                         'Using Components with Known Vulnerabilities', 'Vulnerable and Outdated Service Component',
+                         'Software and Data Integrity Failure', 'Sensitive Data Exposure',
+                         'Cross-Site Request Forgery (CSRF)', 'CSRF']
     parsed = urlparse(vuln.url)
     domain = parsed.netloc
     path = parsed.path
@@ -113,11 +114,46 @@ def run_scan_task(scan_id: int):
         seen_vuln_hashes = set()
         waf_detected = False
         is_windows = False
+        discovered_components = []
+
+        # =====================================================================
+        # ĐỊNH NGHĨA SỚM CALLBACK LƯU LỖ HỔNG ĐỂ TRÁNH LỖI UNBOUNDLOCALERROR
+        # =====================================================================
+        def save_vulnerability_callback(vuln: VulnerabilityDataClass):
+            v_hash = _generate_dedup_hash(vuln)
+            if v_hash in seen_vuln_hashes: return
+
+            kb_info = get_kb_info(vuln.type)
+
+            # --- KIỂM TRA NẾU LÀ LỖ HỔNG COMPONENT THÌ LẤY THẲNG ĐIỂM TỪ VULN ĐÃ ĐƯỢC AUDIT ---
+            if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
+                cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
+                cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
+
+                from utils.cvss_calc import get_severity
+                severity = get_severity(cvss_score)
+            else:
+                # --- TÍNH ĐIỂM DYNAMIC THEO CVSS v3.1 LOGIC CHO CÁC LỖ HỔNG KHÁC ---
+                has_auth = bool(scan.auth_cookies)
+                cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
+                    vuln.type,
+                    getattr(vuln, 'subcategory', None),
+                    has_auth
+                )
+
+            db.session.add(
+                Vulnerability(scan_id=scan.id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
+                              url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
+                              cwe=kb_info.get('cwe', 'N/A'),
+                              details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
+            db.session.commit()
+            seen_vuln_hashes.add(v_hash)
+
+        # =====================================================================
 
         try:
             scraped_urls = set()
             scraped_forms = []
-            discovered_components = []
             crawl_depth = 0 if scan.scan_mode == 'single' else 2
 
             if crawl_depth > 0:
@@ -143,7 +179,6 @@ def run_scan_task(scan_id: int):
             else:
                 scraped_urls.add(scan.target_url)
 
-            # --- SỬA LỖI Ở ĐÂY: Hứng 2 giá trị trả về từ Playwright ---
             print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
             pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
             hidden_apis, mutated_urls = pw_crawler.crawl()
@@ -156,7 +191,6 @@ def run_scan_task(scan_id: int):
             if mutated_urls:
                 for m_url in mutated_urls:
                     scraped_urls.add(m_url)
-            # --------------------------------------------------------
 
             swagger_forms = discover_api_from_swagger(scan.target_url, scan.auth_cookies)
             if swagger_forms:
@@ -212,10 +246,11 @@ def run_scan_task(scan_id: int):
                                  details=json.dumps(wapp_result)))
                 db.session.commit()
 
+                # Bóc tách Tên & Phiên bản từ Wappalyzer đưa vào danh sách chờ Audit
                 for comp_name, comp_data in wapp_result.items():
                     versions = comp_data.get('versions', [])
                     for v in versions:
-                        if v:  # Chỉ lấy khi có version cụ thể
+                        if v:
                             discovered_components.append({
                                 'name': comp_name,
                                 'version': v,
@@ -251,27 +286,24 @@ def run_scan_task(scan_id: int):
                             'url': f"{scan.target_url}:{port_info.get('port')}"
                         })
 
+                # Chuyển đổi Nmap NSE Vulnerabilities thành lỗ hổng ứng dụng chính thức
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     script_id = vuln_info.get('script_id', 'NSE Script')
                     output_text = vuln_info.get('output', '')
 
-                    # Trích xuất tìm mã CVE (ví dụ: CVE-2020-1938) có trong log output của Nmap
                     cve_matches = re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)
-
-                    max_score = 7.5  # Mặc định High nếu nmap quét ra lỗi nhưng không tìm thấy mã CVE cụ thể
-                    max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"  # Mặc định
+                    max_score = 7.5
+                    max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
 
                     cve_list_text = f"CPE/Service: Nmap NSE Script ({script_id})\n"
                     cve_list_text += "-" * 70 + "\n"
                     cve_list_text += f"Port/Protocol: {vuln_info.get('port')}/{vuln_info.get('protocol')}\n"
                     cve_list_text += f"Nmap Script Output:\n{output_text}\n"
 
-                    # Nếu tìm thấy CVE trong logs, tra cứu Vulners lấy điểm & vector chính xác
                     if cve_matches:
                         try:
                             unique_cves = list(set(cve_matches))
                             v_api = get_vulners_api()
-                            # Tra cứu tối đa 2 CVE đầu để tối ưu hiệu năng tránh nghẽn API
                             for cve_id in unique_cves[:2]:
                                 query_res = v_api.search(cve_id, limit=1)
                                 if query_res:
@@ -289,7 +321,7 @@ def run_scan_task(scan_id: int):
                         type='Vulnerable and Outdated Service Component',
                         subcategory=f"NSE: {script_id}",
                         url=f"{scan.target_url} (Port {vuln_info.get('port')})",
-                        severity='',  # Tự động tính nhãn thông qua get_severity
+                        severity='',
                         cvss_score=max_score,
                         cvss_vector=max_vector,
                         details={
@@ -298,6 +330,7 @@ def run_scan_task(scan_id: int):
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
+                db.session.commit()
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
             print(f"[Scan ID: {scan_id}] Running Retire.js (Client-Side Component Analysis)...", flush=True)
@@ -305,19 +338,16 @@ def run_scan_task(scan_id: int):
             if js_urls:
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
-                    # Tự xử lý và đánh giá lỗi dựa trên DB của Retire.js
                     cve_list_text = f"CPE/Component: {r_vuln['component']} ({r_vuln['version']})\n"
                     cve_list_text += "-" * 70 + "\n"
 
                     max_score = 0.0
-
                     for v in r_vuln['vulnerabilities']:
                         identifiers = v.get('identifiers', {})
                         cve = identifiers.get('CVE', [''])[0] if identifiers.get('CVE') else 'N/A'
                         summary = identifiers.get('summary', 'No summary provided')
                         sev = v.get('severity', 'low').lower()
 
-                        # Ánh xạ severity của Retire.js sang điểm CVSS v3.1 giả định (vì Retire.js chỉ trả về text)
                         score = 0.0
                         if sev == 'critical':
                             score = 9.8
@@ -332,7 +362,7 @@ def run_scan_task(scan_id: int):
                         cve_list_text += f"{cve:<18} {score:<5} {summary[:60]}...\n"
 
                     temp_vuln = VulnerabilityDataClass(
-                        type='Using Components with Known Vulnerabilities',
+                        type='Vulnerable and Outdated Service Component',
                         subcategory=f"{r_vuln['component'].title()} {r_vuln['version']} (JS)",
                         url=r_vuln['url'],
                         severity='',
@@ -347,6 +377,9 @@ def run_scan_task(scan_id: int):
             else:
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
+            # =====================================================================
+            # HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS)
+            # =====================================================================
             if discovered_components:
                 print(
                     f"[Scan ID: {scan_id}] Auditing {len(discovered_components)} discovered components via Vulners API...",
@@ -361,24 +394,21 @@ def run_scan_task(scan_id: int):
 
                     vulns = audit_service_version(comp['name'], comp['version'])
                     if vulns:
-                        # Chọn CVE có điểm CVSS cao nhất
                         max_vuln = max(vulns, key=lambda x: x.get('score', 0.0))
                         max_score = max_vuln.get('score', 0.0)
                         max_vector = max_vuln.get('vector', 'UNKNOWN')
 
-                        # Định dạng bảng Text danh sách CVE y hệt yêu cầu
                         sorted_vulns = sorted(vulns, key=lambda x: x.get('score', 0.0), reverse=True)
                         cve_list_text = f"CPE/Component: {comp['name']} ({comp['version']})\n"
                         cve_list_text += "-" * 70 + "\n"
                         for v in sorted_vulns:
-                            # Align format: [CVE-ID]   [Score]   [Link]
                             cve_list_text += f"{v.get('id'):<18} {v.get('score'):<5} {v.get('href')}\n"
 
                         temp_vuln = VulnerabilityDataClass(
-                            type='Using Components with Known Vulnerabilities',
+                            type='Vulnerable and Outdated Service Component',
                             subcategory=f"{comp['name'].title()} {comp['version']}",
                             url=comp['url'],
-                            severity='',  # Sẽ được save_vulnerability_callback tự động map theo CVSS v3.1
+                            severity='',
                             cvss_score=max_score,
                             cvss_vector=max_vector,
                             details={
@@ -391,39 +421,6 @@ def run_scan_task(scan_id: int):
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
                   flush=True)
-
-            def save_vulnerability_callback(vuln: VulnerabilityDataClass):
-                with app.app_context():
-                    v_hash = _generate_dedup_hash(vuln)
-                    if v_hash in seen_vuln_hashes: return
-
-                    kb_info = get_kb_info(vuln.type)
-
-                    # --- KIỂM TRA NẾU LÀ LỖ HỔNG COMPONENT THÌ LẤY THẲNG ĐIỂM TỪ VULN ĐÃ ĐƯỢC AUDIT ---
-                    if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower():
-                        # Lấy trực tiếp điểm và vector đã gán từ Vulners audit hoặc Retire.js
-                        cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
-                        cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
-
-                        # Quy đổi điểm số này sang nhãn mức độ nguy hiểm CVSS v3.1
-                        from utils.cvss_calc import get_severity
-                        severity = get_severity(cvss_score)
-                    else:
-                        # --- TÍNH ĐIỂM DYNAMIC THEO CVSS v3.1 LOGIC CHO CÁC LỖ HỔNG KHÁC ---
-                        has_auth = bool(scan.auth_cookies)
-                        cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
-                            vuln.type,
-                            getattr(vuln, 'subcategory', None),
-                            has_auth
-                        )
-
-                    db.session.add(
-                        Vulnerability(scan_id=scan.id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
-                                      url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
-                                      cwe=kb_info.get('cwe', 'N/A'),
-                                      details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
-                    db.session.commit()
-                    seen_vuln_hashes.add(v_hash)
 
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
