@@ -46,8 +46,8 @@ def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
                          'Security Logging and Monitoring Failure', 'Outdated Service Component',
                          'Using Components with Known Vulnerabilities', 'Vulnerable and Outdated Service Component',
-                         'Software and Data Integrity Failure', 'Sensitive Data Exposure',
-                         'Cross-Site Request Forgery (CSRF)', 'CSRF']
+                         'Software and Data Integrity Failure',
+                         'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']
     parsed = urlparse(vuln.url)
     domain = parsed.netloc
     path = parsed.path
@@ -114,42 +114,42 @@ def run_scan_task(scan_id: int):
         seen_vuln_hashes = set()
         waf_detected = False
         is_windows = False
-        discovered_components = []
+        discovered_components = []  # Lưu trữ các linh kiện chờ kiểm tra qua Vulners (OWASP A06)
 
-        # =====================================================================
-        # ĐỊNH NGHĨA SỚM CALLBACK LƯU LỖ HỔNG ĐỂ TRÁNH LỖI UNBOUNDLOCALERROR
-        # =====================================================================
+        # ---------------------------------------------------------------------
+        # ĐỊNH NGHĨA CALLBACK SỚM ĐỂ TOÀN BỘ CÁC MODULE PHÍA DƯỚI CÓ THỂ SỬ DỤNG
+        # ---------------------------------------------------------------------
         def save_vulnerability_callback(vuln: VulnerabilityDataClass):
-            v_hash = _generate_dedup_hash(vuln)
-            if v_hash in seen_vuln_hashes: return
+            with app.app_context():
+                current_scan = db.session.get(Scan, scan_id)
+                v_hash = _generate_dedup_hash(vuln)
+                if v_hash in seen_vuln_hashes: return
 
-            kb_info = get_kb_info(vuln.type)
+                kb_info = get_kb_info(vuln.type)
 
-            # --- KIỂM TRA NẾU LÀ LỖ HỔNG COMPONENT THÌ LẤY THẲNG ĐIỂM TỪ VULN ĐÃ ĐƯỢC AUDIT ---
-            if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
-                cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
-                cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
+                # Kiểm tra nếu là lỗ hổng Component -> Giữ điểm CVSS gốc từ Vulners/RetireJS
+                if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
+                    cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
+                    cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
 
-                from utils.cvss_calc import get_severity
-                severity = get_severity(cvss_score)
-            else:
-                # --- TÍNH ĐIỂM DYNAMIC THEO CVSS v3.1 LOGIC CHO CÁC LỖ HỔNG KHÁC ---
-                has_auth = bool(scan.auth_cookies)
-                cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
-                    vuln.type,
-                    getattr(vuln, 'subcategory', None),
-                    has_auth
-                )
+                    from utils.cvss_calc import get_severity
+                    severity = get_severity(cvss_score)
+                else:
+                    # Chấm CVSS v3.1 Động cho các lỗ hổng ứng dụng thông thường
+                    has_auth = bool(current_scan.auth_cookies if current_scan else False)
+                    cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
+                        vuln.type,
+                        getattr(vuln, 'subcategory', None),
+                        has_auth
+                    )
 
-            db.session.add(
-                Vulnerability(scan_id=scan.id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
-                              url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
-                              cwe=kb_info.get('cwe', 'N/A'),
-                              details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
-            db.session.commit()
-            seen_vuln_hashes.add(v_hash)
-
-        # =====================================================================
+                db.session.add(
+                    Vulnerability(scan_id=scan_id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
+                                  url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
+                                  cwe=kb_info.get('cwe', 'N/A'),
+                                  details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
+                db.session.commit()
+                seen_vuln_hashes.add(v_hash)
 
         try:
             scraped_urls = set()
@@ -180,6 +180,7 @@ def run_scan_task(scan_id: int):
                 scraped_urls.add(scan.target_url)
 
             print(f"[Scan ID: {scan_id}] Running Playwright Engine (Deep API Interception)...", flush=True)
+            from integrations.playwright_crawler import PlaywrightCrawler
             pw_crawler = PlaywrightCrawler(scan.target_url, scan.auth_cookies, scan.scan_mode)
             hidden_apis, mutated_urls = pw_crawler.crawl()
 
@@ -246,7 +247,7 @@ def run_scan_task(scan_id: int):
                                  details=json.dumps(wapp_result)))
                 db.session.commit()
 
-                # Bóc tách Tên & Phiên bản từ Wappalyzer đưa vào danh sách chờ Audit
+                # Gom nhóm linh kiện từ Wappalyzer
                 for comp_name, comp_data in wapp_result.items():
                     versions = comp_data.get('versions', [])
                     for v in versions:
@@ -279,6 +280,7 @@ def run_scan_task(scan_id: int):
 
                     product, version = port_info.get('product'), port_info.get('version')
                     if product and version:
+                        # Gom nhóm dịch vụ từ Nmap
                         discovered_components.append({
                             'name': product,
                             'version': version,
@@ -292,6 +294,7 @@ def run_scan_task(scan_id: int):
                     output_text = vuln_info.get('output', '')
 
                     cve_matches = re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)
+
                     max_score = 7.5
                     max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
 
@@ -330,6 +333,7 @@ def run_scan_task(scan_id: int):
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
+
                 db.session.commit()
             print(f"[Scan ID: {scan_id}] Reconnaissance phase finished.", flush=True)
 
@@ -342,6 +346,7 @@ def run_scan_task(scan_id: int):
                     cve_list_text += "-" * 70 + "\n"
 
                     max_score = 0.0
+
                     for v in r_vuln['vulnerabilities']:
                         identifiers = v.get('identifiers', {})
                         cve = identifiers.get('CVE', [''])[0] if identifiers.get('CVE') else 'N/A'
@@ -378,7 +383,7 @@ def run_scan_task(scan_id: int):
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
             # =====================================================================
-            # HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS)
+            # [BƯỚC 4] HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS)
             # =====================================================================
             if discovered_components:
                 print(
@@ -417,6 +422,7 @@ def run_scan_task(scan_id: int):
                             }
                         )
                         save_vulnerability_callback(temp_vuln)
+            # =====================================================================
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             print(f"  [Core Scanner] Ready to test: {len(scraped_urls)} URLs and {len(scraped_forms)} Forms...",
