@@ -568,14 +568,67 @@
             detailsHtml += '<tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
-                    let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
-                    displayValue = escapeHtml(displayValue);
-                    detailsHtml += `
-                        <tr>
-                            <td class="tech-details-key align-middle" style="font-weight: 600; color: #89b4fa; width: 25%; background-color: #181825; border-right: 1px solid #313244; padding: 10px 14px;">${escapeHtml(key)}</td>
-                            <td class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${displayValue}</code></td>
-                        </tr>
-                    `;
+                    // Nếu dữ liệu là Mảng Danh sách CVE (Tạo Bảng đẹp mắt)
+                    if (key === 'CVE_List' && Array.isArray(value)) {
+                        let tableHtml = `
+                            <div class="table-responsive mt-2 mb-2 rounded border border-secondary" style="background-color: #181825;">
+                                <table class="table table-sm table-dark table-hover mb-0" style="font-size: 0.85rem;">
+                                    <thead style="background-color: #313244;">
+                                        <tr>
+                                            <th scope="col" class="ps-3 py-2">CVE ID</th>
+                                            <th scope="col" class="py-2 text-center">Score</th>
+                                            <th scope="col" class="py-2">Title / Description</th>
+                                            <th scope="col" class="pe-3 py-2 text-center">Ref</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+
+                        value.forEach(cve => {
+                            let badgeClass = 'bg-secondary';
+                            if(cve.score >= 9.0) badgeClass = 'bg-danger';
+                            else if(cve.score >= 7.0) badgeClass = 'bg-warning text-dark';
+                            else if(cve.score >= 4.0) badgeClass = 'bg-primary';
+
+                            let shortTitle = cve.title;
+                            let tooltipDesc = escapeHtml(cve.desc_snippet || cve.title);
+
+                            tableHtml += `
+                                <tr>
+                                    <td class="ps-3 align-middle text-nowrap fw-bold text-info">${escapeHtml(cve.id)}</td>
+                                    <td class="align-middle text-center"><span class="badge ${badgeClass}" style="width: 40px;">${cve.score}</span></td>
+                                    <td class="align-middle text-wrap" title="${tooltipDesc}" style="color: #bac2de;">${escapeHtml(shortTitle)}</td>
+                                    <td class="pe-3 align-middle text-center">
+                                        <a href="${escapeHtml(cve.href || '#')}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1 border-0" title="View details">
+                                            <i class="bi bi-box-arrow-up-right"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        tableHtml += `</tbody></table></div>`;
+
+                        detailsHtml += `
+                            <tr>
+                                <td class="tech-details-key align-middle" style="font-weight: 600; color: #89b4fa; width: 25%; background-color: #181825; border-right: 1px solid #313244; padding: 10px 14px;">Vulnerability List</td>
+                                <td class="tech-details-val p-0" style="background-color: #11111b;">
+                                    ${tableHtml}
+                                </td>
+                            </tr>
+                        `;
+                    }
+                    // Render dữ liệu thông thường
+                    else {
+                        let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+                        displayValue = escapeHtml(displayValue);
+                        detailsHtml += `
+                            <tr>
+                                <td class="tech-details-key align-middle" style="font-weight: 600; color: #89b4fa; width: 25%; background-color: #181825; border-right: 1px solid #313244; padding: 10px 14px;">${escapeHtml(key)}</td>
+                                <td class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${displayValue}</code></td>
+                            </tr>
+                        `;
+                    }
                 }
             } else {
                  detailsHtml += `<tr><td colspan="2" class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${escapeHtml(details)}</code></td></tr>`;

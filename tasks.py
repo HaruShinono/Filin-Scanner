@@ -342,7 +342,13 @@ def run_scan_task(scan_id: int):
                             score = 3.0
 
                         max_score = max(max_score, score)
-                        cve_list_text += f"{cve:<18} {score:<5} {summary[:60]}...\n"
+
+                        cve_data_list.append({
+                            "id": cve,
+                            "score": score,
+                            "title": summary,
+                            "href": f"https://nvd.nist.gov/vuln/detail/{cve}" if cve != 'N/A' else '#'
+                        })
 
                     temp_vuln = VulnerabilityDataClass(
                         type='Vulnerable and Outdated Service Component',
@@ -353,7 +359,7 @@ def run_scan_task(scan_id: int):
                         cvss_vector=None,
                         details={
                             'Detected Via': 'Retire.js',
-                            'Vulnerability List': cve_list_text
+                            'CVE_List': cve_data_list  # <--- Truyền mảng JSON
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
@@ -375,17 +381,14 @@ def run_scan_task(scan_id: int):
                     # Dùng module vulners_scanner mới để lấy danh sách CVE
                     vulns = audit_component(comp['name'], comp['version'])
                     if vulns:
-                        # Điểm đã được module sort từ cao xuống thấp
                         max_vuln = vulns[0]
                         max_score = max_vuln['score']
                         max_vector = max_vuln['vector']
 
-                        cve_list_text = f"CPE/Component: {comp['name']} ({comp['version']})\n"
-                        cve_list_text += "-" * 95 + "\n"
-
-                        # Format chuẩn form như tabulate trên UI
+                        cve_data_list = []
+                        # Truyền tối đa 15 CVE vào mảng
                         for v in vulns[:15]:
-                            cve_list_text += f"{v['id']:<18} | {v['score']:<4} | {v['title']:<55} | {v['href']}\n"
+                            cve_data_list.append(v)
 
                         temp_vuln = VulnerabilityDataClass(
                             type='Vulnerable and Outdated Service Component',
@@ -396,11 +399,10 @@ def run_scan_task(scan_id: int):
                             cvss_vector=max_vector,
                             details={
                                 'Detected Via': comp['source'],
-                                'Vulnerability List': cve_list_text
+                                'CVE_List': cve_data_list  # <--- Truyền mảng JSON
                             }
                         )
                         save_vulnerability_callback(temp_vuln)
-            # =====================================================================
 
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             scanner_instance = Scanner(
