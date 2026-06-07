@@ -1,11 +1,12 @@
-# integrations/vulners_scanner.py
+import os
 import vulners
 import logging
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-VULNERS_API_KEY = ""
-
+VULNERS_API_KEY = os.getenv("VULNERS_API_KEY", "").strip()
 
 def get_vulners_api():
     if VULNERS_API_KEY:
