@@ -10,7 +10,7 @@ import requests
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-
+from sqlalchemy.orm.exc import StaleDataError
 from factory import create_app, db
 from models import ReconFinding, Scan, Vulnerability
 from scanner_core.scanner import Scanner
@@ -19,7 +19,7 @@ from scanner_core.scanner import Vulnerability as VulnerabilityDataClass
 from integrations.nmap_scanner import run_nmap
 from integrations.wafw00f_scanner import run_wafw00f
 from integrations.dnsrecon_scanner import run_dnsrecon
-from integrations.vulners_scanner import audit_component, lookup_cve  # <--- IMPORT MODULE MỚI
+from integrations.vulners_scanner import audit_component, lookup_cve
 from integrations.waf_bypass_scanner import run_waf_bypass
 from integrations.whatweb_scanner import run_whatweb
 from integrations.wappalyzer_scanner import run_wappalyzer
@@ -119,6 +119,8 @@ def run_scan_task(scan_id: int):
         def save_vulnerability_callback(vuln: VulnerabilityDataClass):
             with app.app_context():
                 current_scan = db.session.get(Scan, scan_id)
+                if not current_scan:
+                    return
                 v_hash = _generate_dedup_hash(vuln)
                 if v_hash in seen_vuln_hashes: return
 
@@ -318,7 +320,7 @@ def run_scan_task(scan_id: int):
 
                         cve_matches = list(set(re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)))
                         for cve_id in cve_matches:
-                            cve_info = lookup_cve(cve_id)  # Dùng hàm từ integrations.vulners_scanner
+                            cve_info = lookup_cve(cve_id)
                             score = cve_info.get('score', 0.0)
                             max_score = max(max_score, score)
                             if score > 0: max_vector = cve_info.get('vector', max_vector)
@@ -335,7 +337,7 @@ def run_scan_task(scan_id: int):
                         display_title = f"NSE: {script_id}"
 
                     if max_score == 0.0:
-                        max_score = 7.5  # Fallback mặc định là High
+                        max_score = 7.5
 
                     cve_data_list.sort(key=lambda x: x['score'], reverse=True)
 
@@ -368,10 +370,8 @@ def run_scan_task(scan_id: int):
             if js_urls:
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
-                    cve_list_text = f"CPE/Component: {r_vuln['component']} ({r_vuln['version']})\n"
-                    cve_list_text += "-" * 70 + "\n"
-
                     max_score = 0.0
+                    cve_data_list = [] # <--- FIX: KHỞI TẠO MẢNG Ở ĐÂY ĐỂ TRÁNH LỖI UNBOUND LOCAL ERROR
 
                     for v in r_vuln['vulnerabilities']:
                         identifiers = v.get('identifiers', {})
@@ -407,10 +407,12 @@ def run_scan_task(scan_id: int):
                         cvss_vector=None,
                         details={
                             'Detected Via': 'Retire.js',
-                            'CVE_List': cve_data_list  # <--- Truyền mảng JSON
+                            'CVE_List': cve_data_list
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
+            else:
+                print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
             # =====================================================================
             # [BƯỚC 4] HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS MỚI)
@@ -426,7 +428,6 @@ def run_scan_task(scan_id: int):
                         continue
                     audited_keys.add(comp_key)
 
-                    # Dùng module vulners_scanner mới để lấy danh sách CVE
                     vulns = audit_component(comp['name'], comp['version'])
                     if vulns:
                         max_vuln = vulns[0]
@@ -434,7 +435,6 @@ def run_scan_task(scan_id: int):
                         max_vector = max_vuln['vector']
 
                         cve_data_list = []
-                        # Truyền tối đa 15 CVE vào mảng
                         for v in vulns[:15]:
                             cve_data_list.append(v)
 
@@ -447,11 +447,14 @@ def run_scan_task(scan_id: int):
                             cvss_vector=max_vector,
                             details={
                                 'Detected Via': comp['source'],
-                                'CVE_List': cve_data_list  # <--- Truyền mảng JSON
+                                'CVE_List': cve_data_list
                             }
                         )
                         save_vulnerability_callback(temp_vuln)
 
+            # =====================================================================
+            # TIẾN HÀNH QUÉT CÁC LỖ HỔNG ỨNG DỤNG BẰNG PYTHON CORE (SQLI, XSS, BAC...)
+            # =====================================================================
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,
@@ -463,12 +466,16 @@ def run_scan_task(scan_id: int):
             scan.status = 'COMPLETED'
             print(f"Scan ID: {scan_id} completed successfully.", flush=True)
 
+
+        except StaleDataError:
+            db.session.rollback()
+            print(f"[Scan ID: {scan_id}] Scan was cancelled or deleted by user. Worker stopped gracefully.", flush=True)
         except Exception as e:
             traceback.print_exc()
             db.session.rollback()
             scan = db.session.get(Scan, scan_id)
-            if scan: scan.status = 'FAILED'
-
+            if scan:
+                scan.status = 'FAILED'
         finally:
             scan = db.session.get(Scan, scan_id)
             if scan:
