@@ -280,35 +280,58 @@ def run_scan_task(scan_id: int):
                     script_id = vuln_info.get('script_id', 'NSE Script')
                     output_text = vuln_info.get('output', '')
 
-                    cve_matches = re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)
-
-                    max_score = 7.5
+                    max_score = 7.5  # Điểm mặc định nếu nmap không trả về điểm CVSS
                     max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+                    detected_cpe = "Unknown Component"
+                    cve_data_list = []
 
-                    cve_list_text = f"CPE/Service: Nmap NSE Script ({script_id})\n"
-                    cve_list_text += "-" * 70 + "\n"
-                    cve_list_text += f"Port/Protocol: {vuln_info.get('port')}/{vuln_info.get('protocol')}\n"
-                    cve_list_text += f"Nmap Script Output:\n{output_text}\n"
+                    cpe_match = re.search(r"cpe:/[aho]:([^:]+):([^:]+):([^:\s]*)", output_text, re.IGNORECASE)
+                    if cpe_match:
+                        vendor, product, version = cpe_match.groups()
+                        detected_cpe = f"{vendor.capitalize()} {product.capitalize()} {version}"
 
-                    if cve_matches:
-                        unique_cves = list(set(cve_matches))
-                        for cve_id in unique_cves[:2]:
-                            cve_info = lookup_cve(cve_id)  # Dùng hàm lookup trực tiếp của Vulners Scanner
-                            if cve_info['score'] > max_score:
-                                max_score = cve_info['score']
-                                max_vector = cve_info['vector']
+                    # <ID>    <SCORE>    <LINK>    [*EXPLOIT*]
+                    for line in output_text.split('\n'):
+                        line_match = re.search(r"^\s*([A-Z0-9\-:]+)\s+(\d+\.\d+)\s+(https://\S+)", line, re.IGNORECASE)
+                        if line_match:
+                            vuln_id, score_str, href = line_match.groups()
+                            score = float(score_str)
+
+                            is_exploit = "*EXPLOIT*" in line
+                            title_prefix = "[EXPLOIT] " if is_exploit else ""
+
+                            cve_data_list.append({
+                                "id": vuln_id,
+                                "score": score,
+                                "title": f"{title_prefix}Vulnerability affecting {detected_cpe}",
+                                "desc_snippet": f"Detected by Nmap {script_id} script.",
+                                "href": href
+                            })
+
+
+                    if cve_data_list:
+                        max_score = max([item['score'] for item in cve_data_list])
+                        max_vector = None
+
+                    cve_data_list.sort(key=lambda x: x['score'], reverse=True)
+
+                    details_dict = {
+                        'Detected Via': f'Nmap NSE ({script_id})',
+                        'Service / CPE': detected_cpe,
+                        'Raw Output': output_text
+                    }
+
+                    if cve_data_list:
+                        details_dict['CVE_List'] = cve_data_list[:15]
 
                     temp_vuln = VulnerabilityDataClass(
                         type='Vulnerable and Outdated Service Component',
-                        subcategory=f"NSE: {script_id}",
+                        subcategory=f"NSE: {script_id} ({detected_cpe})",
                         url=f"{scan.target_url} (Port {vuln_info.get('port')})",
                         severity='',
                         cvss_score=max_score,
                         cvss_vector=max_vector,
-                        details={
-                            'Detected Via': 'Nmap Vulnerability Detection Script (NSE)',
-                            'Vulnerability Details': cve_list_text
-                        }
+                        details=details_dict
                     )
                     save_vulnerability_callback(temp_vuln)
 
