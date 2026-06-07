@@ -275,63 +275,88 @@ def run_scan_task(scan_id: int):
                             'url': f"{scan.target_url}:{port_info.get('port')}"
                         })
 
-                # [BƯỚC 3.2] NMAP TỰ LẤY ĐIỂM CVSS BẰNG LOOKUP_CVE
                 for vuln_info in nmap_data.get('vulnerabilities', []):
                     script_id = vuln_info.get('script_id', 'NSE Script')
                     output_text = vuln_info.get('output', '')
 
-                    max_score = 7.5  # Điểm mặc định nếu nmap không trả về điểm CVSS
+                    max_score = 0.0
                     max_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
-                    detected_cpe = "Unknown Component"
+                    display_title = None
                     cve_data_list = []
 
-                    cpe_match = re.search(r"cpe:/[aho]:([^:]+):([^:]+):([^:\s]*)", output_text, re.IGNORECASE)
-                    if cpe_match:
-                        vendor, product, version = cpe_match.groups()
-                        detected_cpe = f"{vendor.capitalize()} {product.capitalize()} {version}"
+                    if "cpe:/" in output_text.lower():
+                        cpe_match = re.search(r"cpe:/[aoh]:([^:]+):([^:]+)(?::([^:\s]+))?", output_text, re.IGNORECASE)
+                        if cpe_match:
+                            vendor = cpe_match.group(1) or ""
+                            product = cpe_match.group(2) or ""
+                            version = cpe_match.group(3) or ""
+                            display_title = f"{vendor} {product} {version}".replace('_', ' ').title().strip()
 
-                    # <ID>    <SCORE>    <LINK>    [*EXPLOIT*]
-                    for line in output_text.split('\n'):
-                        line_match = re.search(r"^\s*([A-Z0-9\-:]+)\s+(\d+\.\d+)\s+(https://\S+)", line, re.IGNORECASE)
-                        if line_match:
-                            vuln_id, score_str, href = line_match.groups()
-                            score = float(score_str)
+                        lines = output_text.split('\n')
+                        for line in lines:
+                            match = re.match(r"^\s*([a-zA-Z0-9:-]+)\s+([\d.]+)\s+(https?://\S+)", line)
+                            if match:
+                                v_id, v_score_str, v_href = match.groups()
+                                v_score = float(v_score_str)
+                                max_score = max(max_score, v_score)
 
-                            is_exploit = "*EXPLOIT*" in line
-                            title_prefix = "[EXPLOIT] " if is_exploit else ""
+                                cve_data_list.append({
+                                    "id": v_id,
+                                    "score": v_score,
+                                    "title": f"Nmap Vulnerability Detection ({script_id})",
+                                    "desc_snippet": line.strip(),
+                                    "href": v_href
+                                })
+
+                    elif "VULNERABLE:" in output_text:
+                        lines = output_text.split('\n')
+                        for i, line in enumerate(lines):
+                            if "VULNERABLE:" in line and i + 1 < len(lines):
+                                potential_title = lines[i + 1].strip()
+                                if potential_title and not potential_title.startswith("State:") and not display_title:
+                                    display_title = potential_title
+
+                        cve_matches = list(set(re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)))
+                        for cve_id in cve_matches:
+                            cve_info = lookup_cve(cve_id)  # Dùng hàm từ integrations.vulners_scanner
+                            score = cve_info.get('score', 0.0)
+                            max_score = max(max_score, score)
+                            if score > 0: max_vector = cve_info.get('vector', max_vector)
 
                             cve_data_list.append({
-                                "id": vuln_id,
+                                "id": cve_id,
                                 "score": score,
-                                "title": f"{title_prefix}Vulnerability affecting {detected_cpe}",
-                                "desc_snippet": f"Detected by Nmap {script_id} script.",
-                                "href": href
+                                "title": cve_info.get('title', display_title),
+                                "desc_snippet": "Extracted from Nmap NSE output.",
+                                "href": cve_info.get('href', f"https://nvd.nist.gov/vuln/detail/{cve_id}")
                             })
 
+                    if not display_title:
+                        display_title = f"NSE: {script_id}"
 
-                    if cve_data_list:
-                        max_score = max([item['score'] for item in cve_data_list])
-                        max_vector = None
+                    if max_score == 0.0:
+                        max_score = 7.5  # Fallback mặc định là High
 
                     cve_data_list.sort(key=lambda x: x['score'], reverse=True)
 
-                    details_dict = {
-                        'Detected Via': f'Nmap NSE ({script_id})',
-                        'Service / CPE': detected_cpe,
-                        'Raw Output': output_text
+                    details_obj = {
+                        'Detected Via': f'Nmap NSE Script ({script_id})',
+                        'Port / Protocol': f"{vuln_info.get('port')}/{vuln_info.get('protocol')}"
                     }
 
                     if cve_data_list:
-                        details_dict['CVE_List'] = cve_data_list[:15]
+                        details_obj['CVE_List'] = cve_data_list[:15]
+                    else:
+                        details_obj['Raw Nmap Output'] = output_text
 
                     temp_vuln = VulnerabilityDataClass(
                         type='Vulnerable and Outdated Service Component',
-                        subcategory=f"NSE: {script_id} ({detected_cpe})",
+                        subcategory=display_title,
                         url=f"{scan.target_url} (Port {vuln_info.get('port')})",
                         severity='',
                         cvss_score=max_score,
                         cvss_vector=max_vector,
-                        details=details_dict
+                        details=details_obj
                     )
                     save_vulnerability_callback(temp_vuln)
 
