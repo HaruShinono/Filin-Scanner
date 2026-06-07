@@ -126,7 +126,6 @@ def run_scan_task(scan_id: int):
 
                 kb_info = get_kb_info(vuln.type)
 
-                # Logic CVSS
                 if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
                     cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
                     cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
@@ -316,7 +315,12 @@ def run_scan_task(scan_id: int):
                             if "VULNERABLE:" in line and i + 1 < len(lines):
                                 potential_title = lines[i + 1].strip()
                                 if potential_title and not potential_title.startswith("State:") and not display_title:
-                                    display_title = potential_title
+                                    # [MỚI] Thu gọn title: Lấy 2 từ đầu tiên (VD: phpMyAdmin grab_globals.lib.php...)
+                                    words = potential_title.split()
+                                    if len(words) > 2:
+                                        display_title = " ".join(words[:2])
+                                    else:
+                                        display_title = potential_title
 
                         cve_matches = list(set(re.findall(r"CVE-\d{4}-\d{4,7}", output_text, re.IGNORECASE)))
                         for cve_id in cve_matches:
@@ -348,8 +352,8 @@ def run_scan_task(scan_id: int):
 
                     if cve_data_list:
                         details_obj['CVE_List'] = cve_data_list[:15]
-                    else:
-                        details_obj['Raw Nmap Output'] = output_text
+
+                    details_obj['Raw_Log'] = output_text
 
                     temp_vuln = VulnerabilityDataClass(
                         type='Vulnerable and Outdated Service Component',
@@ -371,7 +375,7 @@ def run_scan_task(scan_id: int):
                 retire_results = run_retirejs(js_urls, scan.auth_cookies)
                 for r_vuln in retire_results:
                     max_score = 0.0
-                    cve_data_list = [] # <--- FIX: KHỞI TẠO MẢNG Ở ĐÂY ĐỂ TRÁNH LỖI UNBOUND LOCAL ERROR
+                    cve_data_list = []
 
                     for v in r_vuln['vulnerabilities']:
                         identifiers = v.get('identifiers', {})
@@ -407,16 +411,14 @@ def run_scan_task(scan_id: int):
                         cvss_vector=None,
                         details={
                             'Detected Via': 'Retire.js',
-                            'CVE_List': cve_data_list
+                            'CVE_List': cve_data_list,
+                            'Raw_Log': json.dumps(r_vuln, indent=2)  # [MỚI] RAW LOG
                         }
                     )
                     save_vulnerability_callback(temp_vuln)
             else:
                 print("  [Retire.js] No JavaScript files found to analyze.", flush=True)
 
-            # =====================================================================
-            # [BƯỚC 4] HỢP NHẤT AUDIT OWASP A06: VULNERABLE COMPONENTS (QUA VULNERS MỚI)
-            # =====================================================================
             if discovered_components:
                 print(f"[Scan ID: {scan_id}] Auditing {len(discovered_components)} components via Vulners API...",
                       flush=True)
@@ -447,14 +449,12 @@ def run_scan_task(scan_id: int):
                             cvss_vector=max_vector,
                             details={
                                 'Detected Via': comp['source'],
-                                'CVE_List': cve_data_list
+                                'CVE_List': cve_data_list,
+                                'Raw_Log': json.dumps(vulns, indent=2)  # [MỚI] RAW LOG
                             }
                         )
                         save_vulnerability_callback(temp_vuln)
 
-            # =====================================================================
-            # TIẾN HÀNH QUÉT CÁC LỖ HỔNG ỨNG DỤNG BẰNG PYTHON CORE (SQLI, XSS, BAC...)
-            # =====================================================================
             print(f"[Scan ID: {scan_id}] Starting Core Python Scanner...", flush=True)
             scanner_instance = Scanner(
                 url=scan.target_url, cookies=scan.auth_cookies, depth=crawl_depth,

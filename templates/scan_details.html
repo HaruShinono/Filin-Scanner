@@ -568,14 +568,14 @@
             detailsHtml += '<tbody>';
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
-                    // Nếu dữ liệu là Mảng Danh sách CVE (Tạo Bảng đẹp mắt)
+                    // Nếu dữ liệu là Mảng Danh sách CVE (Tạo Bảng)
                     if (key === 'CVE_List' && Array.isArray(value)) {
                         let tableHtml = `
                             <div class="table-responsive mt-2 mb-2 rounded border border-secondary" style="background-color: #181825;">
                                 <table class="table table-sm table-dark table-hover mb-0" style="font-size: 0.85rem;">
                                     <thead style="background-color: #313244;">
                                         <tr>
-                                            <th scope="col" class="ps-3 py-2">CVE ID</th>
+                                            <th scope="col" class="ps-3 py-2">CVE ID / ID</th>
                                             <th scope="col" class="py-2 text-center">Score</th>
                                             <th scope="col" class="py-2">Title / Description</th>
                                             <th scope="col" class="pe-3 py-2 text-center">Ref</th>
@@ -618,6 +618,33 @@
                             </tr>
                         `;
                     }
+                    // [MỚI] Xử lý RAW LOG biến thành một thẻ thả xuống (Accordion)
+                    else if (key === 'Raw_Log') {
+                        const logId = 'log-' + Math.random().toString(36).substr(2, 9);
+                        detailsHtml += `
+                            <tr>
+                                <td colspan="2" class="p-0 border-0">
+                                    <div class="accordion accordion-flush" id="acc-${logId}">
+                                        <div class="accordion-item" style="background-color: #11111b; border: none;">
+                                            <h2 class="accordion-header">
+                                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#col-${logId}" style="background-color: #181825; color: #a6adc8; border-top: 1px solid #313244; border-bottom: 1px solid #313244; font-size: 0.85rem; box-shadow: none;">
+                                                    <i class="bi bi-terminal me-2"></i> View Full Raw Output / Log Data
+                                                </button>
+                                            </h2>
+                                            <div id="col-${logId}" class="accordion-collapse collapse" data-bs-parent="#acc-${logId}">
+                                                <div class="accordion-body p-0">
+                                                    <div class="terminal-window" style="border-radius: 0;">
+                                                        <div class="terminal-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="title">raw_data.log</span></div>
+                                                        <pre class="terminal-body" style="max-height: 400px; overflow-y: auto;"><code>${escapeHtml(value)}</code></pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    }
                     // Render dữ liệu thông thường
                     else {
                         let displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
@@ -630,10 +657,6 @@
                         `;
                     }
                 }
-            } else {
-                 detailsHtml += `<tr><td colspan="2" class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${escapeHtml(details)}</code></td></tr>`;
-            }
-            detailsHtml += '</tbody></table>';
 
             let childCvssBadge = '';
             if (vuln.cvss_score) {
