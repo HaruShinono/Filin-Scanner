@@ -482,7 +482,7 @@
         if (vectorStr) {
             const parts = vectorStr.split('/');
             parts.forEach(part => {
-                if (part === 'CVSS:4.0') return;
+                if (part === 'CVSS:4.0' || part === 'CVSS:3.1') return;
                 const subparts = part.split(':');
                 if (subparts.length === 2) {
                     const metric = subparts[0];
@@ -566,6 +566,7 @@
 
             let detailsHtml = '<table class="tech-details-table table table-bordered table-sm mt-2 mb-0" style="table-layout: fixed; width: 100%; border: 1px solid #313244; background-color: #11111b;">';
             detailsHtml += '<tbody>';
+
             if (typeof details === 'object' && details !== null) {
                 for (const [key, value] of Object.entries(details)) {
                     // Nếu dữ liệu là Mảng Danh sách CVE (Tạo Bảng)
@@ -618,7 +619,7 @@
                             </tr>
                         `;
                     }
-                    // [MỚI] Xử lý RAW LOG biến thành một thẻ thả xuống (Accordion)
+                    // Xử lý RAW LOG biến thành một thẻ thả xuống (Accordion)
                     else if (key === 'Raw_Log') {
                         const logId = 'log-' + Math.random().toString(36).substr(2, 9);
                         detailsHtml += `
@@ -657,6 +658,11 @@
                         `;
                     }
                 }
+            } else {
+                detailsHtml += `<tr><td colspan="2" class="tech-details-val" style="background-color: #11111b; padding: 10px 14px;"><code class="text-break d-block" style="white-space: pre-wrap; background-color: transparent !important; color: #a6e3a1 !important; padding: 0 !important; border: none !important;">${escapeHtml(details)}</code></td></tr>`;
+            }
+
+            detailsHtml += '</tbody></table>';
 
             let childCvssBadge = '';
             if (vuln.cvss_score) {
