@@ -778,6 +778,20 @@
                 progressBar.classList.remove('progress-bar-animated');
                 progressContainer.setAttribute('aria-valuenow', 100);
 
+                const reloadKey = `reloaded_${scanId}`;
+                const hasReloaded = sessionStorage.getItem(reloadKey);
+
+                if (!hasReloaded) {
+                    sessionStorage.setItem(reloadKey, 'true');
+                    progressMessage.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> <strong>Finalizing report... Loading Reconnaissance data...</strong>`;
+
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+
+                    return;
+                }
+
                 loadingState.classList.add('d-none');
 
                 if (data.status === 'COMPLETED') {
