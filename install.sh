@@ -41,7 +41,11 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 pip install python-Wappalyzer
+pip install playwright
+playwright install
 playwright install chromium
+pip install setuptools
+pip install "setuptools<82"
 
 mkdir -p integrations
 
