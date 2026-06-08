@@ -1,0 +1,85 @@
+# config/cvss_mapping.yml
+
+rules:
+  # 1. SQL INJECTION
+  - type_keywords: ["sql injection", "sqli"]
+    default: { AV: "N", AC: "L", PR: "$AUTH", UI: "N", S: "U", C: "H", I: "L", A: "N" }
+    subcategories:
+      - keywords: ["authentication bypass"]
+        override: { PR: "N", S: "C", C: "H", I: "H", A: "H" }
+      - keywords: ["post", "put", "patch", "delete"]
+        override: { C: "H", I: "H" }
+      - keywords: ["error-based"]
+        override: { C: "H", I: "L" }
+      - keywords: ["time-based"]
+        override: { C: "H", I: "N", A: "L" }
+
+  # 2. LOCAL FILE INCLUSION
+  - type_keywords: ["local file inclusion", "lfi"]
+    default: { AV: "N", AC: "L", PR: "$AUTH", UI: "N", S: "U", C: "H", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["wrapper", "environ"]
+        override: { S: "C", C: "H", I: "H", A: "H" }
+      - keywords: ["project configuration"]
+        override: { C: "H" }
+
+  # 3. CROSS-SITE SCRIPTING (XSS)
+  - type_keywords: ["cross-site scripting", "xss"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "R", S: "C", C: "L", I: "L", A: "N" }
+    subcategories:
+      - keywords: ["stored"]
+        override: { PR: "$AUTH" }
+      - keywords: ["dom-based"]
+        override: { S: "U" }
+
+  # 4. BROKEN ACCESS CONTROL
+  - type_keywords: ["broken access control"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "L", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["privilege escalation"]
+        override: { PR: "L", S: "C", C: "H", I: "H", A: "H" }
+      - keywords: ["idor"]
+        override: { PR: "L", C: "H" }
+      - keywords: ["cswsh", "websocket hijacking"]
+        override: { UI: "R", S: "C", C: "H", I: "H" }
+      - keywords: ["sensitive file", "directory exposure"]
+        override: { C: "H" }
+
+  # 5. XML EXTERNAL ENTITY (XXE)
+  - type_keywords: ["xml external entity", "xxe"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "H", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["external dtd"]
+        override: { S: "C", I: "H" }
+
+  # 6. SERVER-SIDE REQUEST FORGERY (SSRF)
+  - type_keywords: ["server-side request forgery", "ssrf"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "L", I: "L", A: "N" }
+    subcategories:
+      - keywords: ["metadata", "gcp"]
+        override: { S: "C", C: "H", I: "N" }
+
+  # 7. SERVER-SIDE TEMPLATE INJECTION (SSTI)
+  - type_keywords: ["template injection", "ssti"]
+    default: { AV: "N", AC: "L", PR: "$AUTH", UI: "N", S: "U", C: "H", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["command execution", "rce"]
+        override: { S: "C", C: "H", I: "H", A: "H" }
+
+  # 8. SECURITY MISCONFIGURATION
+  - type_keywords: ["security misconfiguration"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "L", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["cors"]
+        override: { UI: "R", I: "L" }
+
+  # 9. CROSS-SITE REQUEST FORGERY (CSRF)
+  - type_keywords: ["cross-site request forgery", "csrf"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "R", S: "U", C: "N", I: "L", A: "N" }
+
+  # 10. CRYPTOGRAPHIC FAILURE / SENSITIVE LEAK
+  - type_keywords: ["cryptographic failure", "sensitive data exposure"]
+    default: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "L", I: "N", A: "N" }
+    subcategories:
+      - keywords: ["private key", "credentials", "stripe"]
+        override: { C: "H" }
