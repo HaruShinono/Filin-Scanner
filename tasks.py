@@ -44,7 +44,7 @@ def get_kb_info(vuln_type):
 
 def _generate_dedup_hash(vuln: VulnerabilityDataClass) -> str:
     GLOBAL_VULN_TYPES = ['Cryptographic Failure', 'Security Misconfiguration',
-                         'Security Logging and Monitoring Failure', 'Outdated Service Component',
+                         'Outdated Service Component',
                          'Using Components with Known Vulnerabilities', 'Vulnerable and Outdated Service Component',
                          'Software and Data Integrity Failure',
                          'Sensitive Data Exposure', 'Cross-Site Request Forgery (CSRF)', 'CSRF']

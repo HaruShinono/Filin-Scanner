@@ -1,3 +1,4 @@
+# scanner_core/testers/logging_tester.py
 import re
 from typing import List
 from urllib.parse import urlparse, urljoin
@@ -44,7 +45,7 @@ class LoggingTester(BaseTester):
                     if match:
                         found_sensitive = True
                         vulns.append(Vulnerability(
-                            type='Security Logging and Monitoring Failure',
+                            type='Broken Access Control',
                             subcategory='Sensitive Data in Logs',
                             url=test_url,
                             details={
@@ -59,7 +60,7 @@ class LoggingTester(BaseTester):
                 if not found_sensitive:
                     if any(keyword in content_lower for keyword in self.debug_keywords):
                         vulns.append(Vulnerability(
-                            type='Security Logging and Monitoring Failure',
+                            type='Broken Access Control',
                             subcategory='Exposed Debug Information',
                             url=test_url,
                             details={
@@ -70,7 +71,7 @@ class LoggingTester(BaseTester):
                         ))
                     else:
                         vulns.append(Vulnerability(
-                            type='Security Logging and Monitoring Failure',
+                            type='Broken Access Control',
                             subcategory='Accessible Log File',
                             url=test_url,
                             details={

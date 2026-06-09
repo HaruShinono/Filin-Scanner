@@ -42,8 +42,10 @@ rules:
         override: { PR: "L", C: "H" }
       - keywords: ["cswsh", "websocket hijacking"]
         override: { UI: "R", S: "C", C: "H", I: "H" }
-      - keywords: ["sensitive file", "directory exposure"]
+      - keywords: ["sensitive file", "directory exposure", "sensitive data in logs"]
         override: { C: "H" }
+      - keywords: ["exposed debug information", "accessible log file"]
+        override: { C: "L" }
 
   # 5. XML EXTERNAL ENTITY (XXE)
   - type_keywords: ["xml external entity", "xxe"]
@@ -83,3 +85,5 @@ rules:
     subcategories:
       - keywords: ["private key", "credentials", "stripe"]
         override: { C: "H" }
+      - keywords: ["email address"]
+        override: { AC: "H", C: "L" }
