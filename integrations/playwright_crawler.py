@@ -1,3 +1,4 @@
+# integrations/playwright_crawler.py
 import json
 import logging
 from urllib.parse import urlparse
@@ -19,8 +20,14 @@ class PlaywrightCrawler:
     def _handle_request(self, request):
         url = request.url
         method = request.method
+        clean_url_lower = url.lower().split('?')[0]
 
-        if any(url.lower().endswith(ext) for ext in ['.js', '.css', '.png', '.jpg', '.svg', '.woff2', '.ico']):
+        # transfer to retire.js
+        if clean_url_lower.endswith('.js'):
+            self.mutated_urls.add(url)
+            return
+
+        if any(clean_url_lower.endswith(ext) for ext in ['.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2', '.ico', '.webp']):
             return
 
         if self.base_url in url and method in ['POST', 'PUT', 'PATCH', 'DELETE', 'GET']:
@@ -232,5 +239,5 @@ class PlaywrightCrawler:
             finally:
                 browser.close()
 
-        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms and {len(self.mutated_urls)} Parametrized URLs!", flush=True)
+        print(f"  [Playwright Crawler] Captured {len(self.discovered_apis)} API Endpoints/Forms and {len(self.mutated_urls)} Parametrized/JS URLs!", flush=True)
         return self.discovered_apis, list(self.mutated_urls)
