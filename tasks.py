@@ -117,35 +117,47 @@ def run_scan_task(scan_id: int):
         discovered_components = []
 
         def save_vulnerability_callback(vuln: VulnerabilityDataClass):
-            with app.app_context():
-                current_scan = db.session.get(Scan, scan_id)
-                if not current_scan:
-                    return
-                v_hash = _generate_dedup_hash(vuln)
-                if v_hash in seen_vuln_hashes: return
+            try:
+                with app.app_context():
+                    current_scan = db.session.get(Scan, scan_id)
+                    if not current_scan:
+                        return
 
-                kb_info = get_kb_info(vuln.type)
+                    v_hash = _generate_dedup_hash(vuln)
+                    if v_hash in seen_vuln_hashes:
+                        return
 
-                if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
-                    cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
-                    cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
-                    from utils.cvss_calc import get_severity
-                    severity = get_severity(cvss_score)
-                else:
-                    has_auth = bool(current_scan.auth_cookies if current_scan else False)
-                    cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
-                        vuln.type,
-                        getattr(vuln, 'subcategory', None),
-                        has_auth
-                    )
+                    kb_info = get_kb_info(vuln.type)
 
-                db.session.add(
-                    Vulnerability(scan_id=scan_id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
-                                  url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
-                                  cwe=kb_info.get('cwe', 'N/A'),
-                                  details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
-                db.session.commit()
-                seen_vuln_hashes.add(v_hash)
+                    # Logic CVSS
+                    if "components with known vulnerabilities" in vuln.type.lower() or "outdated" in vuln.type.lower() or "vulnerable and outdated" in vuln.type.lower():
+                        cvss_score = vuln.cvss_score if vuln.cvss_score is not None else 0.0
+                        cvss_vector = vuln.cvss_vector if (vuln.cvss_vector and vuln.cvss_vector != 'UNKNOWN') else None
+                        from utils.cvss_calc import get_severity
+                        severity = get_severity(cvss_score)
+                    else:
+                        has_auth = bool(current_scan.auth_cookies if current_scan else False)
+                        from utils.cvss_calc import calculate_vulnerability_cvss
+                        cvss_score, cvss_vector, severity = calculate_vulnerability_cvss(
+                            vuln.type,
+                            getattr(vuln, 'subcategory', None),
+                            has_auth
+                        )
+
+                    db.session.add(
+                        Vulnerability(scan_id=scan_id, type=vuln.type, subcategory=getattr(vuln, 'subcategory', None),
+                                      url=vuln.url, severity=severity, cvss_score=cvss_score, cvss_vector=cvss_vector,
+                                      cwe=kb_info.get('cwe', 'N/A'),
+                                      details=json.dumps(vuln.details, indent=2, ensure_ascii=False)))
+                    db.session.commit()
+                    seen_vuln_hashes.add(v_hash)
+
+            except Exception as e:
+                # ÉP IN LỖI RA TERMINAL ĐỂ DEBUG
+                print(f"\n[!!!] CRITICAL ERROR IN CALLBACK SAVING VULNERABILITY [!!!]", flush=True)
+                print(f"Vuln Data: {vuln.type} | {getattr(vuln, 'subcategory', 'None')}", flush=True)
+                traceback.print_exc()
+                print("-----------------------------------------------------------\n", flush=True)
 
         try:
             scraped_urls = set()
